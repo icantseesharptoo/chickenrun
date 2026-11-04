@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Akyar Blocks</title>
+<meta name="description" content="A first-person voxel village game in your browser, built on the real map of Akyar, Republic of Bashkortostan. Feed the chickens and cats, drive to work and the shop, and hunt for old keys.">
+<meta property="og:title" content="Akyar Blocks">
+<meta property="og:description" content="A first-person voxel village game on the real map of Akyar, Bashkortostan.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%236fa63f'/%3E%3Crect y='10' width='16' height='6' fill='%238a6a45'/%3E%3Crect x='5' y='3' width='6' height='7' fill='%23f2eee2'/%3E%3Crect x='7' y='1' width='2' height='2' fill='%23c8322e'/%3E%3Crect x='11' y='5' width='2' height='1' fill='%23e6a12d'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="crosshair"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="toast"></div>
+
+  <div id="top-left" class="panel">
+    <div id="clock">Day 1 · 07:00</div>
+    <div class="bar-row"><span class="bar-label">Hunger</span><div class="bar"><div id="hunger-fill"></div></div></div>
+    <div id="money">200 ₽</div>
+  </div>
+
+  <div id="quest" class="panel">
+    <div id="quest-title"></div>
+    <div id="quest-text"></div>
+    <div id="quest-target"><span id="target-arrow">▲</span> <span id="target-dist"></span></div>
+  </div>
+
+  <div id="top-center" class="panel"><span id="compass">N</span> <span id="street"></span></div>
+
+  <canvas id="minimap" width="190" height="190"></canvas>
+
+  <div id="inventory"></div>
+  <div id="speedo" class="panel hidden"><span id="speed">0</span> <small>km/h</small><div class="hint">W/S drive · A/D steer · Space brake · H horn · V view · E exit</div></div>
+  <div id="work-panel" class="panel hidden"></div>
+</div>
+
+<div id="fade"></div>
+
+<div id="bigmap-wrap" class="hidden">
+  <canvas id="bigmap"></canvas>
+  <div id="bigmap-help">Akyar, Bashkortostan · scroll to zoom · M to close<br><small>Map data © OpenStreetMap contributors (ODbL)</small></div>
+</div>
+
+<div id="shop-ui" class="overlay hidden">
+  <div class="card">
+    <h2>Shop</h2>
+    <p id="shop-money"></p>
+    <div id="shop-items"></div>
+    <button id="shop-close" class="ghost">Leave (Esc)</button>
+  </div>
+</div>
+
+<div id="start" class="overlay">
+  <div class="card">
+    <h1>Akyar Blocks</h1>
+    <p class="sub">A first-person blocky life on the real map of Akyar, Republic of Bashkortostan.</p>
+    <div id="load-status">Loading map…</div>
+    <div id="start-buttons" class="hidden">
+      <button id="btn-play">Play</button>
+      <button id="btn-new" class="ghost hidden">New game</button>
+    </div>
+    <table class="keys">
+      <tr><td>WASD</td><td>Walk</td><td>Shift</td><td>Run</td></tr>
+      <tr><td>Mouse</td><td>Look</td><td>Space</td><td>Jump</td></tr>
+      <tr><td>E</td><td>Interact / get in or out</td><td>Q</td><td>Eat food</td></tr>
+      <tr><td>M</td><td>Map</td><td>N</td><td>Sound on/off</td></tr>
+    </table>
+    <label class="quality">View distance
+      <select id="quality"><option value="7">Short (fastest)</option><option value="10" selected>Medium</option><option value="14">Far</option></select>
+    </label>
+    <p class="credit">Map data © OpenStreetMap contributors (ODbL) · Elevation: Mapzen Terrain Tiles / SRTM · Renderer: three.js</p>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="data/akyar.js"></script>
+<script src="js/blocks.js"></script>
+<script src="js/world.js"></script>
+<script src="js/sites.js"></script>
+<script src="js/mesher.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/audio.js"></script>
+<script>if (/#.*(dev|shot=|perf)/.test(location.hash)) document.write('<script src="tests/dev.js"><\/script>');</script>
+<script src="js/game.js"></script>
+<script>if (window.G && G.devAfterGame) G.devAfterGame();</script>
+</body>
+</html>
