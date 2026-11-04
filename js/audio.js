@@ -83,5 +83,6 @@
     },
     setMuted(m) { muted = m; if (master) master.gain.value = m ? 0 : 0.7; },
     isMuted() { return muted; },
+    suspend() { if (ctx && ctx.state === 'running') ctx.suspend(); },
   };
 })();

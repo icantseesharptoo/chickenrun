@@ -15,7 +15,9 @@ Wake up in your house, feed the chickens and cats, drive to work, buy food at th
 
 In the car: W/S drive, A/D steer, Space brakes, H horn, V switches between driver and chase view.
 
-Follow the quest panel at the top left. Progress saves automatically in your browser. You need a computer with a keyboard and mouse, and a browser with WebGL2 (a recent Chrome, Edge or Firefox).
+**On an Android phone**, open the same link in Chrome and hold the phone sideways. Drag your left thumb to walk and your right thumb to look. USE feeds animals, opens doors and gets you in the car; ▲ ▼ ◀ ▶ drive it. Tap the minimap to open the map, and pinch to zoom. Graphics detail lowers automatically if a phone runs slowly. iPhone and iPad are not supported yet.
+
+Follow the quest panel at the top left. Progress saves automatically in your browser. On a computer you need a keyboard and mouse. Any device needs a browser with WebGL2 (a recent Chrome, Edge or Firefox).
 
 ## The map
 
@@ -51,6 +53,7 @@ After a minute or two the game is live at `https://<your-username>.github.io/<re
 | `js/mesher.js` | Chunk streaming, rendering, distant landscape |
 | `js/entities.js` | Chicken, cat, car and person models |
 | `js/audio.js` | All sounds, synthesised in the browser |
+| `js/touch.js` | Phone controls: joystick, look, buttons, pinch zoom |
 | `js/game.js` | Player, driving, quests, shop, work, save/load, prices |
 | `data/akyar.js` | Baked map data (generated) |
 | `data_src/` | Raw map and elevation downloads |
@@ -69,6 +72,12 @@ To run the tests on Windows with Chrome installed:
 
 ```
 powershell -ExecutionPolicy Bypass -File tests\run.ps1 smoke
+```
+
+To test the phone controls with real touch input through Chrome's Android emulation, serve the folder over HTTP and run:
+
+```
+python -I tests/android_test.py http://127.0.0.1:8123/ <folder-for-screenshots>
 ```
 
 ## Credits and licences

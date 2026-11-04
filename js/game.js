@@ -46,15 +46,38 @@
     $('load-status').textContent = 'This game needs WebGL2, which this browser or device does not provide. Try a recent Chrome, Edge or Firefox on a computer, with hardware acceleration turned on.';
     return;
   }
-  if (matchMedia('(hover: none) and (pointer: coarse)').matches) {
+  // Phones get touch controls. #touch forces them on a computer for debugging.
+  const TOUCH = /[#&]touch/.test(location.hash) || matchMedia('(hover: none) and (pointer: coarse)').matches;
+  const T = (desktop, touch) => (TOUCH ? touch : desktop);
+  if (TOUCH) document.body.classList.add('touch');
+  if (TOUCH && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
     const note = document.createElement('p');
     note.className = 'sub';
-    note.textContent = 'This game needs a keyboard and mouse, so it will not be playable on a phone or tablet yet.';
+    note.textContent = 'Touch controls are made for Android. iPhone and iPad are not supported yet, so parts of the game may not work.';
     $('load-status').before(note);
+  }
+  // Phone graphics levels, stepped down automatically if the frame rate stays low.
+  const TOUCH_LEVELS = [{ ratio: 1.25, radius: 6 }, { ratio: 1, radius: 5 }, { ratio: 0.85, radius: 4 }, { ratio: 0.7, radius: 3 }];
+  let touchLevel = 0;
+  if (TOUCH) {
+    try { touchLevel = clamp(parseInt(localStorage.getItem('akyar-touch-level'), 10) || 0, 0, TOUCH_LEVELS.length - 1); } catch (e) { /* storage blocked */ }
   }
   const canvas = $('game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: /[#&]shot=/.test(location.hash) });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH ? TOUCH_LEVELS[touchLevel].ratio : 1.5));
+  // Phones can drop the graphics context under memory pressure: keep the progress and offer a reload.
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    save();
+    paused = true;
+    $('hud').classList.add('hidden');
+    $('start').classList.remove('hidden');
+    $('start-buttons').classList.add('hidden');
+    const st = $('load-status');
+    st.classList.remove('hidden');
+    st.textContent = 'The device ran out of graphics memory. Your progress is saved. Tap here to reload.';
+    st.addEventListener('click', () => location.reload());
+  });
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 8500);
   camera.rotation.order = 'YXZ';
@@ -294,7 +317,7 @@
     }
   }
   function updatePlayer(dt) {
-    const fwd = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), strafe = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    const fwd = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) + G.touch.stick.y, strafe = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + G.touch.stick.x;
     const sin = Math.sin(P.yaw), cos = Math.cos(P.yaw);
     let wx = -sin * fwd + cos * strafe, wz = -cos * fwd - sin * strafe;
     const wl = Math.hypot(wx, wz);
@@ -443,7 +466,7 @@
     arm.visible = false;
     A.ignition();
     $('speedo').classList.remove('hidden');
-    if (!S.flags.droveCar) { S.flags.droveCar = true; toast('W accelerate · S reverse · A/D steer · Space brake'); }
+    if (!S.flags.droveCar) { S.flags.droveCar = true; toast(T('W accelerate · S reverse · A/D steer · Space brake', 'Hold ▲ to drive and ◀ ▶ to steer. EXIT gets out.')); }
     car.y = S.cy;
   }
   function exitCar() {
@@ -722,7 +745,8 @@
       const dx = p.x - o.x, dy = p.y - o.y, dz = p.z - o.z, d = Math.hypot(dx, dy, dz);
       if (d > it.range + (it.loose ? 0.8 : 0)) continue;
       const dot = (dx * viewDir.x + dy * viewDir.y + dz * viewDir.z) / (d || 1);
-      if (dot < (it.loose ? 0.82 : 0.87)) continue;
+      // Aiming with a thumb is less precise than a mouse, so phones get a wider cone.
+      if (dot < (it.loose ? T(0.82, 0.72) : T(0.87, 0.78))) continue;
       // Line of sight, stopping just short of the target.
       let blocked = false;
       for (let t = 0.25; t < d - 1.3; t += 0.2) {
@@ -783,14 +807,14 @@
   const nearE = (v) => Math.hypot(P.x - v.x, P.z - v.z);
   const QUESTS = [
     { t: 'Morning chores', d: () => 'Take grain from the sack in the shed.', done: () => S.flags.gotGrain, tgt: () => SI.home.sack },
-    { t: 'Morning chores', d: () => `Feed the chickens: ${hens.filter((h) => h.fed).length}/${hens.length}. Walk up, look at one, press E.`, done: () => S.flags.hensDone, tgt: () => SI.home.pos(25, 0, 15) },
+    { t: 'Morning chores', d: () => `Feed the chickens: ${hens.filter((h) => h.fed).length}/${hens.length}. Walk up, look at one, ${T('press E', 'tap USE')}.`, done: () => S.flags.hensDone, tgt: () => SI.home.pos(25, 0, 15) },
     { t: 'Morning chores', d: () => 'Take cat food from the kitchen cupboard.', done: () => S.flags.gotCatFood, tgt: () => SI.home.cupboard },
     { t: 'Morning chores', d: () => `Feed the cats: ${cats.filter((c) => c.fed).length}/${cats.length}. They come to you when hungry.`, done: () => S.flags.catsDone, tgt: () => SI.home.pos(11, 0, 12) },
     { t: 'Off to work', d: () => 'Take the car key from the kitchen table.', done: () => S.carKey, tgt: () => SI.home.keyHook },
     { t: 'Off to work', d: () => 'Get in the car and drive to your job at the parcel depot in the town centre.', done: () => S.flags.atWork, tgt: () => SI.work.entrance },
     { t: 'Off to work', d: () => `Open the door, clock in and move ${SHIFT_CRATES} parcel crates.`, done: () => S.flags.shiftDone, tgt: () => (shift.active ? (carrying ? SI.work.drop : SI.work.pile) : SI.work.clock) },
     { t: 'Dinner', d: () => 'Drive to the shop and buy some food.', done: () => S.flags.boughtFood, tgt: () => (nearE(SI.shop.entrance) < 25 ? SI.shop.counter : SI.shop.entrance) },
-    { t: 'Dinner', d: () => 'Eat your food: press Q.', done: () => S.flags.ate },
+    { t: 'Dinner', d: () => T('Eat your food: press Q.', 'Eat your food: tap EAT.'), done: () => S.flags.ate },
     { t: 'The old chest', d: () => `A chest in your shed has three locks. Find the old keys around Akyar: ${Object.keys(S.keys).length}/${keysW.length}.`, done: () => Object.keys(S.keys).length >= keysW.length, tgt: () => { const k = nearestKey(); return k ? k.g.position : null; }, onStart: () => { S.flags.keysQuest = true; syncKeys(); toast('Follow the golden light beams on the horizon.'); } },
     { t: 'The old chest', d: () => 'Bring the keys home and open the chest in the shed.', done: () => S.flags.chestOpen, tgt: () => SI.home.chest },
     { t: 'Free play', d: () => 'Keep the animals fed, work daily, explore Akyar. Flights to other countries are coming in a future update.', done: () => false },
@@ -975,7 +999,7 @@
   function closeShop() {
     uiOpen = false;
     $('shop-ui').classList.add('hidden');
-    lock();
+    if (!TOUCH) lock();
   }
 
   // ---------- input ----------
@@ -990,7 +1014,11 @@
     if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) e.preventDefault();
     if (e.repeat) return;
     keys[e.code] = true;
-    switch (e.code) {
+    action(e.code);
+  });
+  // One-shot actions, shared by the keyboard and the touch buttons.
+  function action(code) {
+    switch (code) {
       case 'KeyE': doInteract(); break;
       case 'KeyQ': if (!S.inCar) eatNext(); break;
       case 'KeyM': toggleMap(); break;
@@ -998,23 +1026,28 @@
       case 'KeyV': if (S.inCar) { thirdPerson = !thirdPerson; carObj.visible = true; } break;
       case 'KeyH': if (S.inCar) A.horn(); break;
     }
-  });
+  }
+  function applyLook(dx, dy, s) {
+    if (S.inCar) { lookYaw = clamp(lookYaw - dx * s, -2.2, 2.2); P.pitch = clamp(P.pitch - dy * s, -1.0, 0.8); }
+    else { P.yaw -= dx * s; P.pitch = clamp(P.pitch - dy * s, -1.54, 1.54); }
+  }
   addEventListener('keyup', (e) => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
   document.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement !== canvas || mapOpen) return;
-    const dx = clamp(e.movementX, -120, 120), dy = clamp(e.movementY, -120, 120);
-    if (S.inCar) { lookYaw = clamp(lookYaw - dx * 0.0023, -2.2, 2.2); P.pitch = clamp(P.pitch - dy * 0.0023, -1.0, 0.8); }
-    else { P.yaw -= dx * 0.0023; P.pitch = clamp(P.pitch - dy * 0.0023, -1.54, 1.54); }
+    applyLook(clamp(e.movementX, -120, 120), clamp(e.movementY, -120, 120), 0.0023);
   });
+  function zoomMap(delta) {
+    mapZoom = clamp(mapZoom + delta, 1, 8);
+    if (mapOpen) drawBig();
+  }
   addEventListener('wheel', (e) => {
-    if (!mapOpen) return;
-    mapZoom = clamp(mapZoom + (e.deltaY < 0 ? 1 : -1), 1, 8);
-    drawBig();
+    if (mapOpen) zoomMap(e.deltaY < 0 ? 1 : -1);
   }, { passive: true });
   function showPause() {
     paused = true;
     for (const k in keys) keys[k] = false;
+    if (TOUCH) G.touch.releaseAll();
     A.setEngine(false, 0);
     $('start').classList.remove('hidden');
     $('btn-play').textContent = 'Resume';
@@ -1024,15 +1057,67 @@
     if (document.pointerLockElement === canvas) { paused = false; $('start').classList.add('hidden'); }
     else if (started && !uiOpen && !DEV) showPause();
   });
-  canvas.addEventListener('click', () => { if (started && !uiOpen && !document.pointerLockElement) lock(); });
+  canvas.addEventListener('click', () => { if (!TOUCH && started && !uiOpen && !document.pointerLockElement) lock(); });
   $('shop-close').onclick = closeShop;
+  function goFullscreen() {
+    const el = document.documentElement;
+    if (!el.requestFullscreen) return;
+    // Fullscreen and landscape are nice to have: the game still works if the browser refuses.
+    el.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => (screen.orientation && screen.orientation.lock ? screen.orientation.lock('landscape') : null))
+      .catch(() => {});
+  }
   $('btn-play').onclick = () => {
     A.init();
     started = true;
     $('hud').classList.remove('hidden');
-    lock();
-    // Browsers can refuse the lock right after Esc; keep the overlay up until it is granted.
+    if (TOUCH) {
+      paused = false;
+      $('start').classList.add('hidden');
+      goFullscreen();
+    } else {
+      lock();
+      // Browsers can refuse the lock right after Esc; keep the overlay up until it is granted.
+    }
   };
+  // Leaving the app (home button, a call): stop the sound and save, because Android may close the tab.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    if (started && !paused && !DEV) { if (uiOpen) { uiOpen = false; $('shop-ui').classList.add('hidden'); } showPause(); }
+    save();
+    A.suspend();
+  });
+  if (TOUCH) {
+    G.touch.init({
+      keys, action, zoomMap,
+      inCar: () => S.inCar,
+      look: (dx, dy) => { if (!paused && !mapOpen) applyLook(dx, dy, 0.0055); },
+      pause: showPause,
+    });
+    const help = $('bigmap-help');
+    help.firstChild.textContent = 'Akyar, Bashkortostan · pinch to zoom';
+    $('shop-close').textContent = 'Leave';
+  }
+
+  // Automatic phone quality: if the frame rate stays low, step down a level and remember it.
+  function setTouchLevel(l) {
+    touchLevel = l;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH_LEVELS[l].ratio));
+    resize();
+    V.setRadius(TOUCH_LEVELS[l].radius);
+    try { localStorage.setItem('akyar-touch-level', String(l)); } catch (e) { /* storage blocked */ }
+  }
+  function adaptQuality(fps) {
+    if (fps < 26 && touchLevel < TOUCH_LEVELS.length - 1) { setTouchLevel(touchLevel + 1); return true; }
+    return false;
+  }
+  let perfSkip = 5, perfT = 0, perfN = 0;
+  function measureFrame(sec) {
+    if (sec > 1) return; // a pause or tab switch, not a slow frame
+    if (perfSkip > 0) { perfSkip -= sec; return; }
+    perfT += sec; perfN++;
+    if (perfT >= 4) { adaptQuality(perfN / perfT); perfT = perfN = 0; perfSkip = 3; }
+  }
   $('btn-new').onclick = () => { if (confirm('Start a new game? Your saved progress will be erased.')) { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* storage blocked */ } location.reload(); } };
   $('quality').onchange = (e) => { V.setRadius(+e.target.value); try { localStorage.setItem('akyar-radius', e.target.value); } catch (er) { /* storage blocked */ } };
 
@@ -1084,7 +1169,8 @@
     }
     currentI = findInteract();
     const pr = $('prompt');
-    if (currentI) { pr.classList.remove('hidden'); pr.innerHTML = `<b>[E]</b> ${currentI.label()}`; } else pr.classList.add('hidden');
+    if (currentI) { pr.classList.remove('hidden'); pr.innerHTML = `${T('<b>[E]</b> ', '')}${currentI.label()}`; } else pr.classList.add('hidden');
+    if (TOUCH) G.touch.update(currentI);
     const tgt = updateQuests();
     updateHud(dt, tgt);
     if (mapOpen) { mapT -= dt; if (mapT <= 0) { mapT = 0.4; drawBig(); } }
@@ -1095,7 +1181,7 @@
 
   function renderFrame() {
     const b = camera.position;
-    V.update(b.x, b.z, 6);
+    V.update(b.x, b.z, TOUCH ? 3 : 6);
     V.setCameraCenter(b.x, b.z);
     U.uTime.value = performance.now() / 1000;
     updateSky(S.hour);
@@ -1107,8 +1193,10 @@
   let last = 0;
   function frame(t) {
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (t - last) / 1000 || 0.016);
+    const raw = (t - last) / 1000;
+    const dt = Math.min(0.05, raw || 0.016);
     last = t;
+    if (TOUCH && !DEV && started && !paused && !uiOpen && !document.hidden) measureFrame(raw);
     if (started && !paused && !uiOpen) tick(dt);
     else if (DEV && !DEV.frozen) tick(dt);
     renderFrame();
@@ -1122,7 +1210,8 @@
   function boot() {
     const status = $('load-status');
     const r0 = (() => { try { return localStorage.getItem('akyar-radius'); } catch (e) { return null; } })();
-    if (r0) { $('quality').value = r0; V.setRadius(+r0); } else V.setRadius(10);
+    if (TOUCH) V.setRadius(TOUCH_LEVELS[touchLevel].radius);
+    else if (r0) { $('quality').value = r0; V.setRadius(+r0); } else V.setRadius(10);
     status.textContent = 'Drawing the map of Akyar…';
     setTimeout(() => {
       drawMap();
@@ -1154,6 +1243,7 @@
     interactNow: () => doInteract(),
     current: () => currentI,
     buy, openShop, closeShop, eatNext, sleep, exportSave, importSave,
+    isTouch: TOUCH, isPaused: () => paused, isStarted: () => started, isMapOpen: () => mapOpen, mapZoom: () => mapZoom, touchLevel: () => touchLevel, adaptQuality,
     isCarrying: () => carrying,
     setYawPitch(y, p) { P.yaw = y; P.pitch = p; },
     lookAt(v) {
