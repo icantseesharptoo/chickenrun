@@ -162,3 +162,8 @@ body.touch #inventory { max-width: calc(100vw - 440px); overflow: hidden; }
 body.touch .slot { flex-shrink: 0; }
 body.touch #bigmap-help { left: 8px; bottom: 8px; transform: none; width: 170px; text-align: left; font-size: 11px; }
 @media (orientation: portrait) { body.touch #top-center { display: none; } body.touch #inventory { max-width: 50vw; left: 46%; bottom: 150px; } }
+/* Flights */
+#flight-card { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: bold; color: #fff; pointer-events: none; text-align: center; padding: 20px; }
+body.in-cut .t-btn { display: none; }
+body.in-cut .t-use, body.in-cut .t-pause { display: block; }
+body.in-cut #t-stick { display: none; }

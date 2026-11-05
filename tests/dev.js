@@ -23,6 +23,7 @@
     if (look) g.lookAt(look);
   };
   const SI = () => G.sites;
+  const W_TOP = () => G.world.TOP;
   const openDoor = (id) => { const d = G.game.doors.find((o) => o.id === id); d.open = true; d.angle = 1; G.voxels.closedDoors.delete(G.voxels.doorKey(d.x, d.y, d.z)); G.voxels.closedDoors.delete(G.voxels.doorKey(d.x, d.y + 1, d.z)); };
   const tp = (x, z, yoff = 0) => new THREE.Vector3(x, G.voxels.groundBelow(x, z, G.world.elevation(x, z) + 22) + yoff, z);
 
@@ -42,6 +43,15 @@
     car() { const g = G.game; const h = SI().home; g.S().carKey = true; g.S().inCar = true; g.car.y = g.S().cy; settle(); void h; },
     carthird() { const g = G.game; g.S().carKey = true; g.S().inCar = true; g.setThird(true); g.car.y = g.S().cy; settle(); },
     sky() { const g = G.game; const p = G.world.D.named.find((q) => q.n === 'Администрация'); g.teleport(p.x, 420, p.z + 700); g.setYawPitch(0, -0.55); g.P.vy = 0; const c = g.camera; c.position.set(p.x, 420, p.z + 700); G.voxels.setRadius(5); settle(); },
+    airport() { const a = SI().airHome; stand(a.frame.pos(150, 0, 30), a.parked.clone().setY(W_TOP() + 4)); settle(); },
+    terminal() { const a = SI().airHome; stand(a.frame.pos(190.5, 0, -14), a.frame.pos(190.5, 3, 6)); settle(); },
+    desk() { const a = SI().airHome; openDoor('terminal'); stand(a.frame.pos(190.5, 0, 8), a.desk); settle(); },
+    takeoff() { const g = G.game; g.startFlight(g.COUNTRIES[3]); for (let i = 0; i < 480; i++) g.tick(1 / 30); settle(); },
+    climb() { const g = G.game; g.startFlight(g.COUNTRIES[3]); for (let i = 0; i < 660; i++) g.tick(1 / 30); settle(); },
+    abroad() { const g = G.game; g.S().abroad = { id: 'japan', taxiAt: 'airport' }; g.applyPlace(); const a = SI().airAbroad; stand(a.entrance, new THREE.Vector3(G.world.ABROAD.taxiStartX + 40, W_TOP() + 2, G.world.ABROAD.taxiZ)); settle(); },
+    taxi() { const g = G.game; g.S().abroad = { id: 'france', taxiAt: 'airport' }; g.applyPlace(); const t = g.taxiPose(); stand(new THREE.Vector3(t.x - 6, W_TOP(), t.z + 5), new THREE.Vector3(t.x, W_TOP() + 1, t.z)); settle(); },
+    hotel() { const g = G.game; g.S().abroad = { id: 'italy', taxiAt: 'hotel' }; g.applyPlace(); const h = SI().hotel; stand(new THREE.Vector3(h.x - 8, W_TOP(), G.world.ABROAD.z0 - 17), new THREE.Vector3(h.x, W_TOP() + 4, h.signPos.z)); settle(); },
+    hotelin() { const g = G.game; g.S().abroad = { id: 'italy', taxiAt: 'hotel', checkedIn: true }; g.applyPlace(); openDoor('hotel'); const h = SI().hotel; stand(new THREE.Vector3(h.x, W_TOP(), h.signPos.z + 2), h.reception); settle(); },
     night() { const h = SI().home; stand(h.pos(21, 0, 3), h.pos(10, 2, 19)); settle(22); },
     sunset() { const h = SI().home; stand(h.pos(21, 0, 3), h.pos(10, 2, 19)); settle(18); },
   };
@@ -148,7 +158,7 @@
     check('re-enter car at work', S.inCar);
     g.keys.KeyW = true; sim(4); clearKeys();
     const dW = Math.abs((S.cx - work.door.x) * work.door.dx) + Math.abs((S.cz - work.door.z) * work.door.dz);
-    check('car is stopped by the warehouse wall', dW > 1.5, `dist to wall ${dW.toFixed(1)}`);
+    check('car is stopped by the depot wall', dW > 1.5, `dist to wall ${dW.toFixed(1)}`);
     g.keys.Space = true; sim(1.5); clearKeys();
     g.interactNow();
     sim(0.2);
@@ -165,7 +175,7 @@
     g.lookAt(doorW.center.clone().add(new THREE.Vector3(work.door.dx * 3, 0.5, work.door.dz * 3)));
     g.keys.KeyW = true; sim(0.9); clearKeys();
     walked = (P.x - doorW.x) * work.door.dx + (P.z - doorW.z) * work.door.dz;
-    check('walked into the warehouse', walked > 0.9, walked.toFixed(2));
+    check('walked into the depot', walked > 0.9, walked.toFixed(2));
     at(new THREE.Vector3(doorW.x + 0.5 + work.door.dx * 1, work.y, doorW.z + 0.5 + work.door.dz * 1), work.clock);
     check('time clock prompt', /Clock in/.test(curLabel() || ''), curLabel());
     const money0 = S.money;
@@ -234,6 +244,113 @@
     check('chest prompt', /Open the old chest/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.2);
     check('chest opened', S.flags.chestOpen);
+
+    // ---------- The world: flat, few trees ----------
+    let flatBad = 0;
+    for (let i = 0; i < 400; i++) { const c = W.column(Math.floor((W.hash(i, 1) - 0.5) * 5000), Math.floor((W.hash(i, 2) - 0.5) * 6000)); if (c.ground !== W.GROUND_Y) flatBad++; }
+    check('the map is flat everywhere', flatBad === 0, flatBad + ' columns off level');
+    let treesN = 0, cells = 0;
+    for (let cz = -500; cz < 500; cz += 2) for (let cx = -400; cx < 400; cx += 2) { cells++; if (W.treeAt(cx, cz)) treesN++; }
+    const perKm2 = (treesN * 2 * 2) / ((800 * 6 * 1000 * 6) / 1e6);
+    check('trees are sparse (under 60 per square km on average)', perKm2 < 60, perKm2.toFixed(1) + ' per km2');
+
+    // ---------- Airport near home ----------
+    const AH = SI().airHome, AA = W.D.airport;
+    const gap = Math.hypot(Math.max(AA.x0 - H.x1, H.x0 - AA.x1, 0), Math.max(AA.z0 - H.z1, H.z0 - AA.z1, 0));
+    check('airport is a few hundred metres from the house', gap >= 100 && gap <= 600, Math.round(gap) + ' m');
+
+    // ---------- Only non-tropical destinations ----------
+    const TROPICAL = /cambodia|thailand|vietnam|laos|myanmar|indonesia|philippines|malaysia|brazil|india|nigeria|kenya|mexico/i;
+    check('no country in the list is tropical', g.COUNTRIES.every((c) => Math.abs(c.lat) > 23.44 && !TROPICAL.test(c.name)), g.COUNTRIES.map((c) => c.name).join(', '));
+    const picks = new Set();
+    for (let i = 0; i < 400; i++) { const c = g.pickCountry(); picks.add(c.id); if (c.id === S.lastCountry) picks.add('REPEAT'); }
+    check('destinations are random across the list', picks.size === g.COUNTRIES.length || (S.lastCountry && picks.size === g.COUNTRIES.length - 1), picks.size + ' seen');
+
+    // ---------- Terminal and ticket ----------
+    const doorT = g.doors.find((d) => d.id === 'terminal');
+    at(AH.frame.pos(190.5, 0, 4.4), doorT.center);
+    check('terminal door prompt', /Open door/.test(curLabel() || ''), curLabel());
+    g.interactNow(); sim(0.4);
+    const deskSpot = AH.frame.pos(190.5, 0, 10.5);
+    S.money = 100;
+    at(deskSpot, AH.desk);
+    check('ticket desk prompt', /Ticket/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('no ticket without the money', !g.isCut() && S.money === 100);
+    S.money = 900;
+    g.tick(dt);
+    check('ticket offer shows the price', /Buy a ticket/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('buying starts the flight', g.isCut() && S.money === 400 && S.flags.tripStarted, S.money);
+    g.tick(dt);
+    check('prompt offers to skip the flight', /Skip/.test(document.querySelector('#prompt').textContent), document.querySelector('#prompt').textContent);
+    const runFor = (maxSec, until) => { let t = 0; while (t < maxSec && !until()) { g.tick(dt); V.update(g.camera.position.x, g.camera.position.z, 1); t += dt; } return t; };
+    // Watch the whole flight rather than skipping it.
+    let peak = 0;
+    const flightSec = runFor(90, () => { peak = Math.max(peak, g.camera.position.y); return !g.isCut(); });
+    check('the flight plays through and lands', !g.isCut(), flightSec.toFixed(0) + ' s');
+    check('the plane really climbed', peak > W.TOP + 100, 'peak ' + Math.round(peak - W.TOP) + ' m');
+    const aw = W.ABROAD.bounds;
+    check('arrives abroad, inside the new area', S.abroad && P.x > aw.x0 && P.x < aw.x1 && P.z > aw.z0 && P.z < aw.z1, JSON.stringify(S.abroad));
+    const co = g.countryById(S.abroad.id);
+    check('the country is outside the tropics', Math.abs(co.lat) > 23.44, co.name);
+    check('stands on the ground, not stuck', !V.solidAt(Math.floor(P.x), Math.floor(P.y + 0.5), Math.floor(P.z)) && Math.abs(P.y - W.TOP) < 0.01);
+    check('the quest panel follows the trip', /taxi/i.test(document.querySelector('#quest-text').textContent || g.TRIP_QUESTS[0].d()));
+
+    // Save and load while abroad
+    const tripSave = g.exportSave();
+    const again = g.importSave(tripSave);
+    S = g.S();
+    check('saving abroad restores the trip', again && S.abroad && S.abroad.id === co.id);
+
+    // Taxi to the hotel
+    const tp0 = g.taxiPose();
+    at(new THREE.Vector3(tp0.x, W.TOP, tp0.z + 3), new THREE.Vector3(tp0.x, W.TOP + 1, tp0.z));
+    check('taxi prompt', /taxi to the hotel/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('the taxi ride starts', g.isCut() && g.cutInfo().type === 'taxi');
+    const x0T = g.taxiPose().x;
+    runFor(3, () => false);
+    check('the taxi really drives', g.taxiPose().x > x0T + 8, (g.taxiPose().x - x0T).toFixed(1) + ' m');
+    const rideSec = runFor(90, () => !g.isCut());
+    check('the taxi arrives at the hotel', !g.isCut() && S.abroad.reachedHotel && Math.abs(P.x - SI().hotel.x) < 2, rideSec.toFixed(0) + ' s more');
+
+    // Hotel
+    const doorH = g.doors.find((d) => d.id === 'hotel');
+    g.lookAt(doorH.center); g.tick(dt);
+    check('hotel door prompt from the drop-off', /Open door/.test(curLabel() || ''), curLabel());
+    g.interactNow(); sim(0.4);
+    g.keys.KeyW = true; sim(1.6); clearKeys();
+    check('walks into the hotel', P.z > doorH.z + 0.8, 'z ' + P.z.toFixed(1));
+    at(new THREE.Vector3(SI().hotel.reception.x, W.TOP, SI().hotel.reception.z - 3), SI().hotel.reception);
+    check('reception prompt', /Check in/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('checked in', S.abroad.checkedIn);
+    at(new THREE.Vector3(SI().hotel.bed.x - 2.5, W.TOP, SI().hotel.bed.z + 2), SI().hotel.bed);
+    check('hotel bed prompt', /Sleep/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('slept at the hotel', S.abroad.slept);
+
+    // Back to the airport and home
+    const tp1 = g.taxiPose();
+    at(new THREE.Vector3(tp1.x, W.TOP, tp1.z + 3), new THREE.Vector3(tp1.x, W.TOP + 1, tp1.z));
+    check('return taxi prompt', /taxi to the airport/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('skip works on the taxi', g.isCut());
+    g.skipCut();
+    check('back at the airport', !g.isCut() && S.abroad.taxiAt === 'airport' && Math.abs(P.x - W.ABROAD.taxiStartX) < 3);
+    const AB2 = SI().airAbroad;
+    const doorA = g.doors.find((d) => d.id === 'terminal_abroad');
+    at(AB2.frame.pos(190.5, 0, 4.4), doorA.center); g.interactNow(); sim(0.3);
+    at(AB2.frame.pos(190.5, 0, 10.5), AB2.desk);
+    check('fly-home prompt abroad', /Fly home/.test(curLabel() || ''), curLabel());
+    g.interactNow();
+    check('return flight starts', g.isCut());
+    runFor(5, () => false);
+    g.skipCut();
+    check('home again', !g.isCut() && S.abroad === null && S.flags.returnedHome && Math.hypot(P.x - AH.entrance.x, P.z - AH.entrance.z) < 3);
+    check('walks freely after returning', (() => { const x = P.x, z = P.z; g.setYawPitch(P.yaw + Math.PI, 0); g.keys.KeyW = true; sim(0.8); clearKeys(); return Math.hypot(P.x - x, P.z - z) > 1; })());
+    sim(0.1);
     check('final quest reached', S.questIdx === g.QUESTS.length - 1, S.questIdx);
 
     // Save and load round trip
@@ -277,33 +394,7 @@
     g.tick(dt);
     check('no Cyrillic in the page text', !CYR.test(document.body.innerText || document.body.textContent), (document.body.innerText || '').match(/.{0,20}[А-Яа-яЁё].{0,20}/));
 
-    // Can a car reach the shop and work from the gate? BFS on a 3 m grid over drivable columns.
-    function reach(fromV, targets, roadOnly) {
-      const st = 3, seen = new Set(), q = [[Math.round(fromV.x / st), Math.round(fromV.z / st)]];
-      seen.add(q[0][0] * 100000 + q[0][1]);
-      const found = {};
-      let head = 0;
-      while (head < q.length && head < 800000) {
-        const [i, j] = q[head++];
-        const x = i * st, z = j * st;
-        for (const t in targets) if (!found[t] && Math.hypot(targets[t].x - x, targets[t].z - z) < 12) found[t] = head;
-        if (Object.keys(found).length === Object.keys(targets).length) break;
-        for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const ni = i + a, nj = j + b, k = ni * 100000 + nj;
-          if (seen.has(k)) continue;
-          const wx = ni * st, wz = nj * st;
-          if (wx < W.bounds.x0 + 5 || wx > W.bounds.x1 - 5 || wz < W.bounds.z0 + 5 || wz > W.bounds.z1 - 5) continue;
-          const c = W.column(wx, wz);
-          if (c.b || (c.water >= 0 && c.deck < 0) || (c.site && !(Math.hypot(wx - fromV.x, wz - fromV.z) < 24))) continue;
-          if (roadOnly && !c.road && Math.hypot(wx - fromV.x, wz - fromV.z) > 30 && !Object.values(targets).some((t) => Math.hypot(t.x - wx, t.z - wz) < 50)) continue;
-          seen.add(k); q.push([ni, nj]);
-        }
-      }
-      return found;
-    }
     const gate = H.pos(17, 0, -2);
-    const anyGround = reach(gate, { shop: shop.entrance, work: work.entrance }, false);
-    check('car can reach shop and work (overland)', anyGround.shop && anyGround.work, JSON.stringify(anyGround));
 
     // Route along real road cells only, 1 m grid, 8-connected. Returns waypoints or null.
     function roadRoute(from, to) {
@@ -370,12 +461,20 @@
       return { arrived: Math.hypot(e[0] - S.cx, e[1] - S.cz) < 10, sec: Math.round(t), stuck, crashes, topKmh: Math.round(top * 3.6), at: [Math.round(S.cx), Math.round(S.cz)], wp: i + '/' + path.length, ahead: stuck ? ahead.join(' ') : undefined };
     }
     const toWork = roadRoute(gate, work.entrance);
-    check('roads connect home to the warehouse', toWork.path, `visited ${toWork.visited}, route ${toWork.path ? toWork.path.length : 0} m`);
+    check('roads connect home to the depot', toWork.path, `visited ${toWork.visited}, route ${toWork.path ? toWork.path.length : 0} m`);
     if (toWork.path) {
       g.placeCar(gate.x, gate.z, H.carHeading);
       if (S.inCar === false) { S.inCar = true; }
       const r = autopilot(toWork.path, 400);
-      check('autopilot really drives home -> warehouse', r.arrived, JSON.stringify(r));
+      check('autopilot really drives home -> depot', r.arrived, JSON.stringify(r));
+    }
+    const toAir = roadRoute(gate, SI().airHome.entrance);
+    check('roads connect home to the airport', toAir.path, `route ${toAir.path ? toAir.path.length : 0} m`);
+    if (toAir.path) {
+      g.placeCar(gate.x, gate.z, H.carHeading);
+      S.inCar = true;
+      const r = autopilot(toAir.path, 200);
+      check('autopilot really drives home -> airport', r.arrived, JSON.stringify(r));
     }
     const toShop = roadRoute(gate, shop.entrance);
     check('roads connect home to the shop', toShop.path, `visited ${toShop.visited}, route ${toShop.path ? toShop.path.length : 0} m`);

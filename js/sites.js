@@ -16,10 +16,16 @@
     w: (u, v) => [H.x + v, H.z + S - 1 - u],
     e: (u, v) => [H.x + S - 1 - v, H.z + u],
   }[H.gate];
-  const heights = [];
-  for (let u = 0; u <= S; u += 8) for (let v = 0; v <= S; v += 8) heights.push(W.elevation(H.x + u, H.z + v));
-  heights.sort((a, b) => a - b);
-  const homeY = Math.floor(heights[heights.length >> 1]) + 1;
+  const homeY = W.TOP;
+  const TI = G.blocks.tileIndex;
+  // A pitched roof mesh over local cells u0..u1, v0..v1, with its ridge along u.
+  const homeRoof = (u0, u1, v0, v1, y, rise, roofT, wallT) => {
+    const a = toWorld(u0, v0), b = toWorld(u1, v1);
+    W.addRoof({
+      x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]) + 1, z0: Math.min(a[1], b[1]), z1: Math.max(a[1], b[1]) + 1,
+      y: homeY + y, rise, roofT, wallT, ridge: H.gate === 'n' || H.gate === 's' ? 'x' : 'z',
+    });
+  };
 
   const cmds = [];
   const put = (u, y, v, id) => { const [x, z] = toWorld(u, v); cmds.push(x, homeY + y, z, id); };
@@ -57,13 +63,11 @@
   // Door opening (door mesh is added below)
   put(10, 0, V0, 0); put(10, 1, V0, 0);
   // Pitched roof with overhang, ridge along u
-  for (let v = V0 - 1; v <= V1 + 1; v++) for (let u = U0 - 1; u <= U1 + 1; u++) {
-    const r = Math.min(v - (V0 - 1), V1 + 1 - v);
-    for (let y = 3; y <= 3 + r; y++) put(u, y, v, u === U0 - 1 || u === U1 + 1 ? (y === 3 + r ? B.ROOF_GREEN : 0) : y === 3 + r ? B.ROOF_GREEN : B.WALL_WHITE);
-  }
+  for (let v = V0; v <= V1; v++) for (let u = U0; u <= U1; u++) if (u === U0 || u === U1 || v === V0 || v === V1) put(u, 3, v, B.WALL_BLUE);
   box(U0 + 1, U1 - 1, 3, 3, V0 + 1, V1 - 1, B.PLANKS); // ceiling
+  homeRoof(U0 - 1, U1 + 1, V0 - 1, V1 + 1, 4, 3.6, TI.roof_green, TI.wall_white);
   // Chimney
-  box(15, 15, 3, 10, 19, 19, B.BRICK_RED);
+  box(15, 15, 3, 8, 19, 19, B.BRICK_RED);
   // Porch
   box(9, 11, -1, -1, 15, 16, B.PLANKS);
   // Partition between kitchen and bedroom
@@ -89,12 +93,9 @@
   box(22, 29, -1, -1, 21, 28, B.PLANKS);
   put(26, 0, 20, 0); put(26, 1, 20, 0);
   put(23, 1, 20, B.WIN_LOG); put(29, 1, 20, B.WIN_LOG);
-  for (let v = 19; v <= 30; v++) for (let u = 20; u <= 31; u++) {
-    const r = Math.min(v - 19, 30 - v);
-    const h = Math.min(4, r);
-    for (let y = 3; y <= 3 + h; y++) put(u, y, v, y === 3 + h ? B.ROOF_BROWN : B.WALL_LOG);
-  }
+  for (let v = 20; v <= 29; v++) for (let u = 21; u <= 30; u++) if (u === 21 || u === 30 || v === 20 || v === 29) put(u, 3, v, B.WALL_LOG);
   box(22, 29, 3, 3, 21, 28, B.PLANKS);
+  homeRoof(20, 31, 19, 30, 4, 2.8, TI.roof_brown, TI.wall_log);
   put(22, 0, 21, B.SACK); put(23, 0, 21, B.SACK); put(22, 1, 21, B.SACK);
   box(27, 29, 0, 1, 26, 28, B.HAY); put(29, 2, 28, B.HAY);
   put(25, 0, 28, B.CHEST);
@@ -102,39 +103,26 @@
 
   // ---------- Chicken coop: u 24..30, v 5..10 ----------
   for (let y = 0; y <= 1; y++) for (let v = 5; v <= 10; v++) for (let u = 24; u <= 30; u++) {
-    if (u === 24 || u === 30 || v === 5 || v === 10) put(u, y, v, B.PLANKS);
+    if (u === 24 || u === 30 || v === 5 || v === 10) put(u, y, v, B.WALL_LOG);
     else put(u, y, v, 0);
   }
   box(25, 29, -1, -1, 6, 9, B.STRAW);
   put(24, 0, 8, 0); put(24, 1, 8, 0);
-  for (let v = 4; v <= 11; v++) for (let u = 23; u <= 31; u++) {
-    const r = Math.min(Math.min(v - 4, 11 - v), 2);
-    for (let y = 2; y <= 2 + r; y++) put(u, y, v, B.ROOF_RED);
-  }
+  homeRoof(23, 31, 4, 11, 2, 1.5, TI.roof_red, TI.wall_log);
   box(22, 23, 0, 0, 13, 13, B.TROUGH);
   put(29, 0, 14, B.HAY); put(30, 0, 14, B.HAY); put(29, 1, 14, B.HAY);
 
   // Yard trees
-  const yardTree = (u, v, birch) => {
-    const trunk = birch ? B.BIRCH : B.LOG, leaf = birch ? B.BIRCH_LEAVES : B.LEAVES;
-    for (let y = 0; y < 5; y++) put(u, y, v, trunk);
-    for (let y = 3; y <= 6; y++) {
-      const r = y >= 6 ? 0 : y === 5 ? 1 : 2;
-      for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) {
-        if ((a || b || y > 4) && u + a > 0 && u + a < S - 1 && v + b > 0 && v + b < S - 1 && !(Math.abs(a) === r && Math.abs(b) === r && r > 0)) put(u + a, y, v + b, leaf);
-      }
-    }
-  };
-  yardTree(20, 4, true);
-  yardTree(2, 14, false);
-  yardTree(2, 30, true);
-  yardTree(18, 30, false);
+  const yardTree = (u, v, birch, h) => { const [x, z] = toWorld(u, v); W.addTree(x + 0.5, z + 0.5, birch, h); };
+  yardTree(20, 3, true, 8);
+  yardTree(2, 30, true, 7.5);
+  yardTree(18, 30, false, 7);
 
   const worldCmds = Int32Array.from(cmds);
   const stamp = (set) => {
     for (let i = 0; i < worldCmds.length; i += 4) set(worldCmds[i], worldCmds[i + 1], worldCmds[i + 2], worldCmds[i + 3]);
   };
-  W.addSite({ id: 'home', x0: H.x, z0: H.z, x1: H.x + S, z1: H.z + S, y: homeY, blend: 12, surf: B.GRASS, stamp, top: homeY + 14 });
+  W.addSite({ id: 'home', x0: H.x, z0: H.z, x1: H.x + S, z1: H.z + S, y: homeY, stamp, top: homeY + 10 });
 
   // Converts a local position (block centre coords) to world coordinates.
   const homePos = (u, y, v) => {
@@ -335,5 +323,113 @@
   if (bridge) { landmarks.push({ id: 'key_bridge', label: 'River key', where: 'on the Tanalyk river bridge', x: bridge.x, z: bridge.z }); }
   if (landmarks.length < 3) addLm('key_college', 'College key', 'by the Mining College', namedPlace('Акъярский горный колледж'));
 
-  G.sites = { home, shop, work, doors, landmarks };
+  // ---------- Airports: one layout, used in Akyar and in every other country ----------
+  const AIR_L = 380, AIR_W = 96;
+  function makeFrame(side, x0, z0, x1, z1, y) {
+    const toW = { n: (u, v) => [x0 + u, z0 + v], s: (u, v) => [x1 - 1 - u, z1 - 1 - v], w: (u, v) => [x0 + v, z1 - 1 - u], e: (u, v) => [x1 - 1 - v, z0 + u] }[side];
+    const pos = (u, yy, v) => {
+      const [wx, wz] = toW(Math.floor(u), Math.floor(v));
+      const fu = u - Math.floor(u), fv = v - Math.floor(v);
+      const r = { n: [fu, fv], s: [1 - fu, 1 - fv], w: [fv, 1 - fu], e: [1 - fv, fu] }[side];
+      return new THREE.Vector3(wx + r[0], y + yy, wz + r[1]);
+    };
+    const dirU = { n: [1, 0], s: [-1, 0], w: [0, -1], e: [0, 1] }[side];
+    const along = side === 'n' || side === 's' ? 'x' : 'z';
+    return { toW, pos, dirU, along };
+  }
+  const stampOf = (cmds) => {
+    const arr = Int32Array.from(cmds);
+    return (set) => { for (let i = 0; i < arr.length; i += 4) set(arr[i], arr[i + 1], arr[i + 2], arr[i + 3]); };
+  };
+  function buildAirport(id, rect, side, title) {
+    const F = makeFrame(side, rect.x0, rect.z0, rect.x1, rect.z1, W.TOP);
+    const c = [];
+    const put2 = (u, y, v, b) => { const [x, z] = F.toW(u, v); c.push(x, W.TOP + y, z, b); };
+    const U0T = 176, U1T = 204, V0T = 6, V1T = 20, DOORU = 190;
+    for (let v = V0T; v <= V1T; v++) for (let u = U0T; u <= U1T; u++) {
+      const edge = u === U0T || u === U1T || v === V0T || v === V1T;
+      put2(u, -1, v, B.TERMINAL_FLOOR);
+      for (let y = 0; y <= 4; y++) {
+        if (edge) put2(u, y, v, y === 2 && (u + v) % 2 === 0 ? B.WIN_PLASTER : B.PLASTER);
+      }
+      put2(u, 5, v, edge ? B.PLASTER : B.CONCRETE);
+      put2(u, 6, v, edge ? B.PLASTER : B.FLAT_ROOF);
+    }
+    put2(DOORU, 0, V0T, 0); put2(DOORU, 1, V0T, 0);
+    for (let u = DOORU - 4; u <= DOORU + 4; u++) put2(u, 0, 14, B.DESK);
+    W.addSite({ id, x0: rect.x0, z0: rect.z0, x1: rect.x1, z1: rect.z1, y: W.TOP, stamp: stampOf(c), top: W.TOP + 8 });
+    const [dx, dz] = F.toW(DOORU, V0T);
+    doors.push({ x: dx, y: W.TOP, z: dz, along: F.along, swing: 1, id });
+    const a = (u, v) => F.pos(u, 0, v);
+    const flat = (ua, va, ub, vb, w, layer, tier) => { const p = a(ua, va), q = a(ub, vb); W.addFlat({ ax: p.x, az: p.z, bx: q.x, bz: q.z, w, layer, tier }); };
+    flat(150, 3, 230, 3, 6, 'road_asphalt', 'asphalt');
+    flat(60, 36, 320, 36, 28, 'pad_concrete', 'pad');
+    flat(190, 50, 190, 62, 14, 'pad_concrete', 'pad');
+    flat(6, 73, 374, 73, 24, 'road_asphalt', 'runway');
+    for (let u = 30; u < 350; u += 22) flat(u, 73, u + 11, 73, 0.7, 'paint', 'paint');
+    flat(6, 62, 374, 62, 0.45, 'paint', 'paint');
+    flat(6, 84, 374, 84, 0.45, 'paint', 'paint');
+    for (let k = 0; k < 6; k++) {
+      flat(10, 64 + k * 3.6, 24, 64 + k * 3.6, 1.6, 'paint', 'paint');
+      flat(356, 64 + k * 3.6, 370, 64 + k * 3.6, 1.6, 'paint', 'paint');
+    }
+    const t0 = F.toW(U0T, V0T), t1 = F.toW(U1T + 1, V1T + 1);
+    W.addFarBox({ x0: Math.min(t0[0], t1[0]), x1: Math.max(t0[0], t1[0]), z0: Math.min(t0[1], t1[1]), z1: Math.max(t0[1], t1[1]), h: 7, color: 0xd5d1c5 });
+    const out = F.pos(DOORU + 0.5, 0, V0T - 0.06);
+    return {
+      id, title, frame: F, rect,
+      desk: F.pos(DOORU + 0.5, 1, 14.5),
+      clerk: F.pos(DOORU + 0.5, 0, 16),
+      clerkYaw: Math.atan2(-F.dirU[1], F.dirU[0]), // faces the door
+      entrance: F.pos(DOORU + 0.5, 0, 3),
+      signPos: out.setY(W.TOP + 3.6),
+      parked: F.pos(190, 0, 36),
+      runwayStart: F.pos(14, 0, 73),
+      heading: Math.atan2(-F.dirU[0], -F.dirU[1]), // nose along the runway (forward = -sin h, -cos h)
+    };
+  }
+  const airHome = buildAirport('terminal', D.airport, D.airport.side, 'AKYAR AIRPORT');
+  const AB = W.ABROAD;
+  const airAbroad = buildAirport('terminal_abroad', { x0: AB.x0, z0: AB.z0, x1: AB.x0 + AIR_L, z1: AB.z0 + AIR_W }, 'n', 'INTERNATIONAL AIRPORT');
+  // Short link from the airport's forecourt to the street that leads to the hotel.
+  W.addFlat({ ax: AB.x0 + 190, az: AB.z0 + 3, bx: AB.x0 + 190, bz: AB.z0 + AB.roadZ, w: 8, layer: 'road_asphalt', tier: 'asphalt' });
+
+  // ---------- Hotel: the same in every country ----------
+  const hotel = (() => {
+    const X = AB.hotelX, Z0 = AB.z0 - 3, Z1 = AB.z0 + 13, X0 = X - 13, X1 = X + 13;
+    const c = [];
+    const p3 = (x, y, z, b) => c.push(x, W.TOP + y, z, b);
+    for (let z = Z0; z <= Z1; z++) for (let x = X0; x <= X1; x++) {
+      const edge = x === X0 || x === X1 || z === Z0 || z === Z1;
+      p3(x, -1, z, B.TERMINAL_FLOOR);
+      for (let y = 0; y <= 13; y++) {
+        const window = (x + z) % 3 === 0 && (y === 2 || (y > 4 && (y - 5) % 3 === 1));
+        if (edge) p3(x, y, z, window ? B.WIN_PLASTER : B.PLASTER);
+        else if (y >= 5) p3(x, y, z, B.INVIS);
+      }
+      if (!edge) p3(x, 4, z, B.PLASTER);
+      p3(x, 14, z, edge ? B.PLASTER : B.FLAT_ROOF);
+    }
+    p3(X, 0, Z0, 0); p3(X, 1, Z0, 0);
+    // Reception, then a guest room behind a partition.
+    for (let x = X - 5; x <= X + 2; x++) p3(x, 0, Z0 + 9, B.DESK);
+    for (let z = Z0 + 1; z < Z1; z++) for (let y = 0; y <= 3; y++) if (!(z >= Z0 + 6 && z <= Z0 + 7 && y <= 1)) p3(X + 5, y, z, B.WALL_WHITE);
+    for (const [bx, bz] of [[X + 9, Z0 + 5], [X + 10, Z0 + 5], [X + 9, Z0 + 6], [X + 10, Z0 + 6]]) p3(bx, 0, bz, B.HOTEL_BED);
+    for (let x = X + 7; x <= X + 11; x++) for (let z = Z0 + 9; z <= Z0 + 12; z++) p3(x, -1, z, B.RUG);
+    for (let x = X - 9; x <= X - 7; x++) for (let z = Z0 + 3; z <= Z0 + 5; z++) p3(x, -1, z, B.RUG);
+    W.addSite({ id: 'hotel', x0: X0, z0: Z0, x1: X1 + 1, z1: Z1 + 1, y: W.TOP, stamp: stampOf(c), top: W.TOP + 16 });
+    doors.push({ x: X, y: W.TOP, z: Z0, along: 'x', swing: 1, id: 'hotel' });
+    W.addFlat({ ax: X + 0.5, az: AB.z0 + AB.roadZ + 4, bx: X + 0.5, bz: Z0, w: 4, layer: 'pad_concrete', tier: 'pad' });
+    W.addFarBox({ x0: X0, x1: X1 + 1, z0: Z0, z1: Z1 + 1, h: 15, color: 0xd5d1c5 });
+    return {
+      x: X + 0.5,
+      reception: new THREE.Vector3(X - 1.5, W.TOP + 1, Z0 + 9.5),
+      clerk: new THREE.Vector3(X - 1.5, W.TOP, Z0 + 11),
+      bed: new THREE.Vector3(X + 10, W.TOP + 0.6, Z0 + 6),
+      entrance: new THREE.Vector3(X + 0.5, W.TOP, Z0 - 3),
+      signPos: new THREE.Vector3(X + 0.5, W.TOP + 3.6, Z0 - 0.06),
+    };
+  })();
+
+  G.sites = { home, shop, work, doors, landmarks, airHome, airAbroad, hotel };
 })();

@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#26313a">
 <title>Akyar Blocks</title>
-<meta name="description" content="A first-person voxel village game in your browser, built on the real map of Akyar, Republic of Bashkortostan. Feed the chickens and cats, drive to work and the shop, and hunt for old keys.">
+<meta name="description" content="A first-person village game in your browser, built on the real map of Akyar, Republic of Bashkortostan. Feed the chickens and cats, drive to work and the shop, and fly abroad.">
 <meta property="og:title" content="Akyar Blocks">
-<meta property="og:description" content="A first-person voxel village game on the real map of Akyar, Bashkortostan.">
+<meta property="og:description" content="A first-person village game on the real map of Akyar, Bashkortostan.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%236fa63f'/%3E%3Crect y='10' width='16' height='6' fill='%238a6a45'/%3E%3Crect x='5' y='3' width='6' height='7' fill='%23f2eee2'/%3E%3Crect x='7' y='1' width='2' height='2' fill='%23c8322e'/%3E%3Crect x='11' y='5' width='2' height='1' fill='%23e6a12d'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
@@ -42,6 +42,7 @@
 </div>
 
 <div id="fade"></div>
+<div id="flight-card" class="hidden"></div>
 
 <div id="bigmap-wrap" class="hidden">
   <canvas id="bigmap"></canvas>
@@ -60,7 +61,7 @@
 <div id="start" class="overlay">
   <div class="card">
     <h1>Akyar Blocks</h1>
-    <p class="sub">A first-person blocky life on the real map of Akyar, Republic of Bashkortostan.</p>
+    <p class="sub">Village life on the real map of Akyar, Republic of Bashkortostan.</p>
     <div id="load-status">Loading map…</div>
     <div id="start-buttons" class="hidden">
       <button id="btn-play">Play</button>
@@ -81,7 +82,7 @@
     <label class="quality">View distance
       <select id="quality"><option value="7">Short (fastest)</option><option value="10" selected>Medium</option><option value="14">Far</option></select>
     </label>
-    <p class="credit">Map data © OpenStreetMap contributors (ODbL) · Elevation: Mapzen Terrain Tiles / SRTM · Renderer: three.js</p>
+    <p class="credit">Map data © OpenStreetMap contributors (ODbL) · Renderer: three.js</p>
   </div>
 </div>
 

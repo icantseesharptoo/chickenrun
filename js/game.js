@@ -28,7 +28,24 @@
     { id: 'catfood', qty: 3, price: 50, desc: '3 portions for the cats' },
   ];
   const EGG_PRICE = 25, SHIFT_CRATES = 5, SHIFT_PAY = 300, DAY_SECONDS = 20 * 60, HUNGER_PER_SEC = 0.1;
-  const SAVE_KEY = 'akyar-blocks-save-v2'; // bumped when the map layout changes, because old saves hold old positions
+  const SAVE_KEY = 'akyar-blocks-save-v3'; // bumped when the map layout changes, because old saves hold old positions
+  const TICKET_PRICE = 500;
+  // Flights go to a random country outside the tropics: Cambodia and other tropical countries are deliberately left out.
+  // lat is the capital's latitude, so the rule can be checked. tint gently colours the ground. All of them share one airport, street and hotel.
+  const COUNTRIES = [
+    { id: 'france', name: 'France', city: 'Paris', lat: 48.9, hello: 'Bonjour', tint: [1, 1, 0.96], flag: { dir: 'v', colors: ['#21468b', '#ffffff', '#c8102e'] } },
+    { id: 'germany', name: 'Germany', city: 'Berlin', lat: 52.5, hello: 'Guten Tag', tint: [0.96, 1, 0.96], flag: { dir: 'h', colors: ['#111111', '#c8102e', '#f2c200'] } },
+    { id: 'italy', name: 'Italy', city: 'Rome', lat: 41.9, hello: 'Buongiorno', tint: [1.04, 1, 0.9], flag: { dir: 'v', colors: ['#008c45', '#ffffff', '#cd212a'] } },
+    { id: 'japan', name: 'Japan', city: 'Tokyo', lat: 35.7, hello: 'Konnichiwa', tint: [0.98, 1.02, 0.96], flag: { dir: 'h', colors: ['#ffffff'], disc: '#bc002d' } },
+    { id: 'poland', name: 'Poland', city: 'Warsaw', lat: 52.2, hello: 'Dzien dobry', tint: [0.97, 1, 0.97], flag: { dir: 'h', colors: ['#ffffff', '#dc143c'] } },
+    { id: 'ireland', name: 'Ireland', city: 'Dublin', lat: 53.3, hello: 'Dia duit', tint: [0.9, 1.08, 0.9], flag: { dir: 'v', colors: ['#169b62', '#ffffff', '#ff883e'] } },
+    { id: 'austria', name: 'Austria', city: 'Vienna', lat: 48.2, hello: 'Gruss Gott', tint: [0.96, 1.02, 0.96], flag: { dir: 'h', colors: ['#ed2939', '#ffffff', '#ed2939'] } },
+    { id: 'hungary', name: 'Hungary', city: 'Budapest', lat: 47.5, hello: 'Jo napot', tint: [1.02, 1, 0.92], flag: { dir: 'h', colors: ['#ce2939', '#ffffff', '#477050'] } },
+    { id: 'estonia', name: 'Estonia', city: 'Tallinn', lat: 59.4, hello: 'Tere', tint: [0.94, 1, 1], flag: { dir: 'h', colors: ['#0072ce', '#111111', '#ffffff'] } },
+    { id: 'armenia', name: 'Armenia', city: 'Yerevan', lat: 40.2, hello: 'Barev', tint: [1.08, 0.98, 0.84], flag: { dir: 'h', colors: ['#d90012', '#0033a0', '#f2a800'] } },
+    { id: 'ukraine', name: 'Ukraine', city: 'Kyiv', lat: 50.5, hello: 'Pryvit', tint: [1, 1.02, 0.92], flag: { dir: 'h', colors: ['#0057b7', '#ffd700'] } },
+    { id: 'romania', name: 'Romania', city: 'Bucharest', lat: 44.4, hello: 'Buna ziua', tint: [1.02, 1, 0.94], flag: { dir: 'v', colors: ['#002b7f', '#fcd116', '#ce1126'] } },
+  ];
 
   const newState = () => ({
     money: 200, hunger: 75, hour: 7, day: 1, lastReset: 1, lastShiftDay: 0, fridgeDay: 0,
@@ -37,6 +54,8 @@
     px: SI.home.spawn.x, py: SI.home.spawn.y, pz: SI.home.spawn.z, yaw: SI.home.spawnYaw, pitch: 0,
     cx: SI.home.car.x, cy: SI.home.car.y, cz: SI.home.car.z, ch: SI.home.carHeading, inCar: false,
     hens: [], cats: [], questIdx: 0,
+    abroad: null, // { id, reachedHotel, checkedIn, slept, mealDay, taxiAt } while on a trip
+    lastCountry: null, flights: 0,
   });
   let S = newState();
 
@@ -86,11 +105,11 @@
   addEventListener('resize', resize);
   resize();
 
-  V.init(scene);
+  V.init(scene, Math.min(renderer.capabilities.getMaxAnisotropy(), TOUCH ? 2 : 4));
   const U = G.mats.U;
 
   // ---------- map canvas: HUD map + ground texture of the far landscape ----------
-  const MAP_K = 0.5;
+  const MAP_K = 0.4;
   const mapCanvas = document.createElement('canvas');
   const mapX = (x) => (x - BND.x0) * MAP_K, mapZ = (z) => (z - BND.z0) * MAP_K;
   function drawMap() {
@@ -103,7 +122,7 @@
     const cols = { 0: [116, 160, 74], 1: [62, 112, 52], 2: [150, 145, 130], 3: [106, 140, 90], 4: [154, 166, 84], 5: [86, 130, 90], 6: [110, 168, 80], 7: [110, 110, 112], 8: [150, 138, 110], 9: [190, 176, 130] };
     for (let j = 0, i = 0; j < lu.h; j++) for (let x = 0; x < lu.w; x++, i++) {
       const wx = lu.x0 + x * lu.step, wz = lu.z0 + j * lu.step;
-      const hs = clamp(1 + (W.elevation(wx - 8, wz) - W.elevation(wx + 8, wz)) * 0.09 + (W.elevation(wx, wz - 8) - W.elevation(wx, wz + 8)) * 0.09, 0.7, 1.25);
+      const hs = 1;
       const col = cols[W.landuse(wx + 1, wz + 1)] || cols[0];
       img.data[i * 4] = col[0] * hs; img.data[i * 4 + 1] = col[1] * hs; img.data[i * 4 + 2] = col[2] * hs; img.data[i * 4 + 3] = 255;
     }
@@ -132,25 +151,81 @@
     c.fillRect(mapX(h.x0), mapZ(h.z0), (h.x1 - h.x0) * MAP_K, (h.z1 - h.z0) * MAP_K);
   }
 
+  // The texture of the ground itself: land cover, sandy banks, soft building shadows. Roads are separate meshes.
+  const GROUND_K = 0.33;
+  const groundCanvas = document.createElement('canvas');
+  function drawGround() {
+    const k = GROUND_K;
+    groundCanvas.width = Math.ceil((BND.x1 - BND.x0) * k);
+    groundCanvas.height = Math.ceil((BND.z1 - BND.z0) * k);
+    const c = groundCanvas.getContext('2d');
+    const X = (x) => (x - BND.x0) * k, Z = (z) => (z - BND.z0) * k;
+    const lu = W.D.landuse;
+    const small = document.createElement('canvas'); small.width = lu.w; small.height = lu.h;
+    const sc = small.getContext('2d'), img = sc.createImageData(lu.w, lu.h);
+    const cols = { 0: [116, 138, 74], 1: [92, 118, 62], 2: [138, 134, 118], 3: [106, 128, 82], 4: [140, 146, 88], 5: [94, 118, 80], 6: [104, 142, 70], 7: [112, 112, 112], 8: [138, 128, 104], 9: [168, 156, 120] };
+    for (let j = 0, i = 0; j < lu.h; j++) for (let x = 0; x < lu.w; x++, i++) {
+      const col = cols[W.landuse(lu.x0 + x * lu.step + 1, lu.z0 + j * lu.step + 1)] || cols[0];
+      img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = 255;
+    }
+    sc.putImageData(img, 0, 0);
+    c.imageSmoothingEnabled = true;
+    c.drawImage(small, (lu.x0 - BND.x0) * k, (lu.z0 - BND.z0) * k, lu.w * lu.step * k, lu.h * lu.step * k);
+    // Sandy, worn ground along the water.
+    const line = (p, w) => {
+      c.beginPath();
+      for (let i = 0; i < p.length; i += 2) { const x = X(p[i]), y = Z(p[i + 1]); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+      c.lineWidth = w * k; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke();
+    };
+    c.strokeStyle = 'rgba(170,152,112,0.55)';
+    W.D.rivers.forEach((r) => line(r.p, r.w + 12));
+    c.strokeStyle = 'rgba(170,152,112,0.9)';
+    W.D.rivers.forEach((r) => line(r.p, r.w + 5));
+    // Soft shadows, thrown to one side: the cheapest way to make buildings sit on the ground.
+    for (const [ox, oy, a] of [[1.4, 1.0, 0.16], [2.6, 1.9, 0.12]]) {
+      c.fillStyle = `rgba(20,26,18,${a})`;
+      for (const b of W.buildings) {
+        if (b.x0 > BND.x1 || b.x1 < BND.x0) continue;
+        c.beginPath();
+        for (let i = 0; i < b.p.length; i += 2) { const x = X(b.p[i] + ox), y = Z(b.p[i + 1] + oy); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+        c.closePath(); c.fill();
+      }
+    }
+    // Trodden earth around the terminal.
+    const a0 = SI.airHome.frame.pos(150, 0, 0), a1 = SI.airHome.frame.pos(230, 0, 96);
+    c.fillStyle = 'rgba(150,146,118,0.35)';
+    c.fillRect(X(Math.min(a0.x, a1.x)), Z(Math.min(a0.z, a1.z)), Math.abs(a1.x - a0.x) * k, Math.abs(a1.z - a0.z) * k);
+  }
+
   // ---------- sky ----------
-  const skyU = { uTop: { value: new THREE.Color() }, uHor: { value: U.uFogColor.value }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uNight: { value: 0 }, uSunset: { value: 0 } };
+  const skyU = { uTop: { value: new THREE.Color() }, uHor: { value: U.uFogColor.value }, uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uNight: { value: 0 }, uSunset: { value: 0 }, uTiles: { value: G.mats.tilesTex }, uLayer: { value: G.blocks.tileIndex.ground_detail }, uTime: U.uTime, uSun: U.uSun };
   const dome = new THREE.Mesh(new THREE.SphereGeometry(7000, 24, 16), new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3, side: THREE.BackSide, depthWrite: false, depthTest: false,
     uniforms: skyU,
     vertexShader: `out vec3 vDir; void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `
-      uniform vec3 uTop; uniform vec3 uHor; uniform vec3 uSunDir; uniform float uNight; uniform float uSunset;
+      precision highp sampler2DArray;
+      uniform vec3 uTop; uniform vec3 uHor; uniform vec3 uSunDir; uniform float uNight; uniform float uSunset; uniform float uTime; uniform float uLayer; uniform vec3 uSun;
+      uniform sampler2DArray uTiles;
       in vec3 vDir; out vec4 fragColor;
       float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453); }
       void main() {
         vec3 d = normalize(vDir);
         vec3 c = mix(uHor, uTop, pow(clamp(d.y * 1.9, 0.0, 1.0), 0.65));
-        vec3 r = normalize(cross(uSunDir, vec3(0.0, 0.0, 1.0)));
-        vec3 u2 = cross(r, uSunDir);
-        float a = dot(d, r), b = dot(d, u2);
-        if (dot(d, uSunDir) > 0.0 && max(abs(a), abs(b)) < 0.05) c = mix(vec3(1.0, 0.97, 0.78), vec3(1.0, 0.7, 0.35), uSunset);
-        if (dot(d, uSunDir) < 0.0 && max(abs(a), abs(b)) < 0.035) c = mix(c, vec3(0.92, 0.93, 0.98), uNight);
-        if (uNight > 0.02 && d.y > 0.02 && hash(floor(d * 170.0)) > 0.9975) c = mix(c, vec3(1.0), uNight);
+        float sd = dot(d, uSunDir);
+        vec3 sunCol = mix(vec3(1.0, 0.97, 0.86), vec3(1.0, 0.68, 0.36), uSunset);
+        c += sunCol * (pow(max(sd, 0.0), 180.0) * 0.45 + pow(max(sd, 0.0), 12.0) * 0.1) * (1.0 - uNight);
+        c = mix(c, sunCol, smoothstep(0.9993, 0.9996, sd) * (1.0 - uNight));
+        c = mix(c, vec3(0.92, 0.93, 0.98), smoothstep(0.9996, 0.9998, -sd) * uNight);
+        if (uNight > 0.02 && d.y > 0.02 && hash(floor(d * 170.0)) > 0.9975) c = mix(c, vec3(1.0), uNight * 0.8);
+        // Soft clouds from two samples of a tiling noise texture.
+        if (d.y > 0.01) {
+          vec2 p = d.xz / (d.y + 0.14) * 0.16;
+          float a = texture(uTiles, vec3(p + uTime * 0.0015, uLayer)).g, b = texture(uTiles, vec3(p * 2.7 - uTime * 0.001, uLayer)).r;
+          float cover = smoothstep(0.5, 0.74, a * 0.72 + b * 0.32) * smoothstep(0.01, 0.16, d.y);
+          vec3 cloud = mix(vec3(0.82, 0.84, 0.88), vec3(1.0), smoothstep(0.5, 0.9, a)) * uSun;
+          c = mix(c, cloud, cover * 0.92);
+        }
         fragColor = vec4(c, 1.0);
       }`,
   }));
@@ -177,10 +252,6 @@
   }
 
   // ---------- world objects ----------
-  const clouds = M.clouds();
-  clouds.position.y = 240;
-  scene.add(clouds);
-
   const carObj = M.car();
   scene.add(carObj);
   const car = { speed: 0, steer: 0, y: S.cy, pitch: 0, roll: 0, spin: 0 };
@@ -194,6 +265,21 @@
   heldCrate.visible = false;
   camera.add(heldCrate);
   const carViewOffset = new THREE.Vector3(-0.42, 1.36, 0.3);
+  const cockpit = M.cockpit();
+  cockpit.position.set(0, -0.15, 0);
+  cockpit.visible = false;
+  camera.add(cockpit);
+  // Parked planes, a taxi with its driver, airport and hotel staff.
+  const planeHome = M.plane(), planeAbroad = M.plane();
+  planeHome.position.copy(SI.airHome.parked); planeHome.rotation.y = SI.airHome.heading;
+  planeAbroad.position.copy(SI.airAbroad.parked); planeAbroad.rotation.y = SI.airAbroad.heading;
+  scene.add(planeHome, planeAbroad);
+  const taxiObj = M.car({ body: 0xe2c43f, taxi: true });
+  const taxiDriver = M.person(0x3d4f63, 0x2a2118);
+  taxiDriver.scale.setScalar(0.82);
+  taxiDriver.position.set(-0.42, -0.05, 0.3);
+  taxiObj.add(taxiDriver);
+  scene.add(taxiObj);
   let thirdPerson = false, lookYaw = 0;
 
   // Doors
@@ -224,6 +310,21 @@
   }
   placeSign(SI.shop, ['SHOP', 'FOOD AND GROCERIES'], '#1f5d9e', '#ffffff');
   placeSign(SI.work, ['PARCEL DEPOT', 'STAFF ENTRANCE'], '#3a3f44', '#f0c94a');
+  // Airport and hotel signs. The ones abroad are repainted for each country.
+  function wallSign(pos, yaw, lines, w, h, bg, fg, flag) {
+    const m = M.signPlane(lines, w, h, bg, fg, flag);
+    m.position.copy(pos); m.rotation.y = yaw;
+    scene.add(m);
+    return m;
+  }
+  const signYaw = (air) => Math.atan2(air.frame.dirU[1], -air.frame.dirU[0]); // faces the forecourt
+  wallSign(SI.airHome.signPos, signYaw(SI.airHome), ['AKYAR AIRPORT', 'DEPARTURES'], 10, 1.5, '#17406d', '#ffffff');
+  const signAbroad = wallSign(SI.airAbroad.signPos, signYaw(SI.airAbroad), ['INTERNATIONAL AIRPORT', 'WELCOME'], 12, 1.7, '#17406d', '#ffffff');
+  const signHotel = wallSign(SI.hotel.signPos, Math.PI, ['HOTEL', 'WELCOME'], 10, 1.6, '#3b2a4f', '#f4e4b0');
+  const mkStaff = (shirt, hair, pos, yaw) => { const p = M.person(shirt, hair); p.position.copy(pos); p.rotation.y = yaw; scene.add(p); return p; };
+  mkStaff(0x1f4e82, 0x2b2118, SI.airHome.clerk, SI.airHome.clerkYaw);
+  mkStaff(0x1f4e82, 0x4a3a28, SI.airAbroad.clerk, SI.airAbroad.clerkYaw);
+  mkStaff(0x5a2f6e, 0x2b2118, SI.hotel.clerk, 0);
 
   // Shop cashier, cat bowl, carried items and so on
   const cashier = M.person(0xb5342e, 0x3a2a1c);
@@ -252,7 +353,7 @@
     const beam = M.beacon(0xffe27a);
     g.add(beam);
     scene.add(g);
-    const y = V.groundBelow(l.x, l.z, W.elevation(l.x, l.z) + 24);
+    const y = V.groundBelow(l.x, l.z, W.TOP + 2);
     g.position.set(l.x, y, l.z);
     return { ...l, g, key, beam, y };
   });
@@ -291,7 +392,7 @@
   const P = { x: S.px, y: S.py, z: S.pz, vx: 0, vy: 0, vz: 0, yaw: S.yaw, pitch: S.pitch, onGround: false, eye: S.py + 1.62, bob: 0, stepDist: 0, inWater: false };
   const keys = {};
   const HW = 0.3, HH = 1.78;
-  const TERRAIN = new Set([B.GRASS, B.FOREST, B.STEPPE, B.DIRT, B.STONE, B.SAND, B.GRAVEL, B.ASPHALT, B.ROAD_LINE, B.DIRT_ROAD, B.SOIL, B.PLANKS, B.FLOOR_TILE, B.RUG, B.CONCRETE, B.STRAW]);
+  const TERRAIN = new Set([B.GROUND, B.DIRT, B.STONE, B.SAND, B.GRAVEL, B.ASPHALT, B.ROAD_LINE, B.DIRT_ROAD, B.SOIL, B.PLANKS, B.FLOOR_TILE, B.RUG, B.CONCRETE, B.STRAW]);
   function collides(x, y, z) {
     const x0 = Math.floor(x - HW), x1 = Math.floor(x + HW), y0 = Math.floor(y), y1 = Math.floor(y + HH), z0 = Math.floor(z - HW), z1 = Math.floor(z + HW);
     for (let iy = y0; iy <= y1; iy++) for (let iz = z0; iz <= z1; iz++) for (let ix = x0; ix <= x1; ix++) if (V.solidAt(ix, iy, iz)) return true;
@@ -307,13 +408,14 @@
     }
     return true;
   }
+  let AB = BND; // the area the player may currently walk in
   let boundsToastAt = 0;
   function clampBounds() {
     const m = 3;
-    const x = clamp(P.x, BND.x0 + m, BND.x1 - m), z = clamp(P.z, BND.z0 + m, BND.z1 - m);
+    const x = clamp(P.x, AB.x0 + m, AB.x1 - m), z = clamp(P.z, AB.z0 + m, AB.z1 - m);
     if (x !== P.x || z !== P.z) {
       P.x = x; P.z = z;
-      if (performance.now() - boundsToastAt > 6000) { boundsToastAt = performance.now(); toast('This is the edge of the mapped area around Akyar.'); }
+      if (performance.now() - boundsToastAt > 6000) { boundsToastAt = performance.now(); toast(S.abroad ? 'The taxi is the way to get around here.' : 'This is the edge of the mapped area around Akyar.'); }
     }
   }
   function updatePlayer(dt) {
@@ -325,7 +427,7 @@
     const running = keys.ShiftLeft || keys.ShiftRight;
     let speed = running ? 7.5 : 4.6;
     if (S.hunger <= 0) speed *= 0.6;
-    P.inWater = V.blockAt(Math.floor(P.x), Math.floor(P.y + 0.5), Math.floor(P.z)) === B.WATER;
+    P.inWater = false;
     if (P.inWater) speed *= 0.55;
     if (carrying) speed *= 0.85;
     const acc = P.onGround || P.inWater ? 14 : 4;
@@ -391,9 +493,9 @@
       const ix = Math.floor(px), iz = Math.floor(pz);
       if (V.solidAt(ix, baseY + 1, iz) || V.solidAt(ix, baseY + 2, iz)) return { blocked: true };
       const here = V.blockAt(ix, baseY, iz);
+      if (here === B.WATER_WALL) return { blocked: true, water: true };
       if (SOLID[here] && !TERRAIN.has(here)) return { blocked: true };
       const g = V.groundBelow(ix + 0.5, iz + 0.5, baseY + 0.5);
-      if (V.blockAt(ix, g, iz) === B.WATER) return { blocked: true, water: true };
       if (lz < 0) maxFront = Math.max(maxFront, g); else maxRear = Math.max(maxRear, g);
     }
     return { blocked: false, front: maxFront, rear: maxRear };
@@ -413,7 +515,7 @@
     const nh = S.ch + dh;
     const nx = S.cx - Math.sin(nh) * car.speed * dt, nz = S.cz - Math.cos(nh) * car.speed * dt;
     const pr = carProbe(nx, nz, nh, car.y);
-    if (pr.blocked || nx < BND.x0 + 5 || nx > BND.x1 - 5 || nz < BND.z0 + 5 || nz > BND.z1 - 5) {
+    if (pr.blocked || nx < AB.x0 + 5 || nx > AB.x1 - 5 || nz < AB.z0 + 5 || nz > AB.z1 - 5) {
       if (pr.water && performance.now() - waterToastAt > 5000) { waterToastAt = performance.now(); toast('Too deep to drive here. Look for a bridge.'); }
       if (Math.abs(car.speed) > 5) A.crash();
       car.speed *= -0.25;
@@ -475,7 +577,7 @@
     for (const [lx, lz] of [[-1.7, 0], [1.7, 0], [0, 3], [0, -3], [-2.6, 0], [2.6, 0]]) {
       const x = S.cx + lx * c + lz * s, z = S.cz - lx * s + lz * c;
       const y = V.groundBelow(x, z, car.y + 2);
-      if (!collides(x, y, z) && V.blockAt(Math.floor(x), y, Math.floor(z)) !== B.WATER) {
+      if (!collides(x, y, z)) {
         P.x = x; P.y = y; P.z = z; P.vx = P.vy = P.vz = 0; P.eye = y + 1.62; P.yaw = S.ch; P.pitch = 0;
         S.inCar = false; car.speed = 0; arm.visible = !carrying; thirdPerson = false;
         A.setEngine(false, 0);
@@ -631,7 +733,7 @@
     },
   });
   addI({
-    pos: () => SI.home.bed, range: 4,
+    pos: () => SI.home.bed, range: 4, margin: 2,
     label: () => 'Sleep until morning',
     act: sleep,
   });
@@ -645,8 +747,8 @@
       if (S.flags.chestOpen) return;
       if (Object.keys(S.keys).length < keysW.length) { A.denied(); toast('Three locks. Find the old keys around Akyar.'); return; }
       S.flags.chestOpen = true; S.money += 1000; A.success(); A.coin();
-      toast('Inside: 1000 ₽ and a pilot\'s logbook with a route out of Bashkortostan...');
-      toast('Flying to other countries will arrive in a future update.');
+      toast('Inside: 1000 ₽ and a pilot\'s logbook with a route out of Bashkortostan.');
+      toast('The logbook mentions an airport just down the road.');
     },
   });
   addI({
@@ -732,10 +834,273 @@
     carKeyObj.visible = !S.carKey;
   }
 
+  // ---------- trips abroad ----------
+  const countryById = (id) => COUNTRIES.find((c) => c.id === id) || COUNTRIES[0];
+  const PICK_TAXI = new THREE.Vector3();
+  let taxiPose = { x: W.ABROAD.taxiStartX, z: W.ABROAD.taxiZ, h: -Math.PI / 2 };
+  function placeTaxi(x, z, h) {
+    taxiPose = { x, z, h };
+    taxiObj.position.set(x, W.TOP, z);
+    taxiObj.rotation.y = h;
+  }
+  // Moves the rules of the world between Akyar and the country template.
+  function applyPlace() {
+    const c = S.abroad ? countryById(S.abroad.id) : null;
+    AB = c ? W.ABROAD.bounds : BND;
+    V.setBounds(AB);
+    if (c) {
+      V.setGroundTint(c.tint[0], c.tint[1], c.tint[2]);
+      signAbroad.setText([`${c.city.toUpperCase()} AIRPORT`, `${c.hello}! WELCOME TO ${c.name.toUpperCase()}`], c.flag);
+      signHotel.setText([`HOTEL ${c.city.toUpperCase()}`, c.hello], c.flag);
+      if (S.abroad.taxiAt === 'hotel') placeTaxi(SI.hotel.x, W.ABROAD.taxiZ, -Math.PI / 2);
+      else placeTaxi(W.ABROAD.taxiStartX, W.ABROAD.taxiZ, -Math.PI / 2);
+    } else V.setGroundTint(1, 1, 1);
+    carObj.visible = !c;
+  }
+  function pickCountry() {
+    const pool = COUNTRIES.filter((c) => c.id !== S.lastCountry);
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  function addHours(h) {
+    const before = S.hour;
+    S.hour += h;
+    if (S.hour >= 24) { S.hour -= 24; S.day++; }
+    if (before < 6 && S.hour >= 6) newDayReset();
+  }
+  const fadeEl = () => $('fade');
+  function setCard(text) {
+    const el = $('flight-card');
+    el.textContent = text || '';
+    el.classList.toggle('hidden', !text);
+  }
+
+  let cut = null; // the running cutscene: a flight or a taxi ride
+  function beginCut(c) {
+    cut = c;
+    cut.t = 0;
+    for (const k in keys) keys[k] = false;
+    arm.visible = false;
+    lookYaw = 0;
+    if (TOUCH) G.touch.releaseAll();
+    savedRadius = V.getRadius();
+  }
+  let savedRadius = 10;
+  function endCut() {
+    const wasFlight = cut && cut.type === 'flight';
+    cut = null;
+    arm.visible = !carrying && !S.inCar;
+    cockpit.visible = false;
+    P.pitch = 0;
+    lookYaw = 0;
+    if (wasFlight) { V.setRadius(savedRadius); planeHome.visible = planeAbroad.visible = true; }
+    setCard('');
+    A.setEngine(false, 0);
+  }
+
+  // Flight: roll down the runway, climb out, fade, a title card, then land at the other end.
+  function startFlight(country) {
+    const from = S.abroad ? SI.airAbroad : SI.airHome;
+    const to = country ? SI.airAbroad : SI.airHome;
+    beginCut({ type: 'flight', stage: 'takeoff', from, to, country, speed: 4, dist: 0, y: W.TOP + 3.9, pitch: 0, switched: false });
+    (S.abroad ? planeAbroad : planeHome).visible = false;
+    cockpit.visible = true;
+    V.setRadius(Math.min(savedRadius, TOUCH ? 3 : 5));
+    A.ignition();
+  }
+  function flightArrive(c) {
+    // Under the fade: move to the destination.
+    c.switched = true;
+    S.flights++;
+    if (c.country) {
+      S.abroad = { id: c.country.id, reachedHotel: false, checkedIn: false, slept: false, mealDay: 0, taxiAt: 'airport' };
+      S.lastCountry = c.country.id;
+    } else {
+      S.abroad = null;
+      S.flags.returnedHome = true;
+    }
+    S.hunger = Math.max(0, S.hunger - 8);
+    addHours(4);
+    applyPlace();
+    planeHome.visible = planeAbroad.visible = true;
+    (c.country ? planeAbroad : planeHome).visible = false;
+  }
+  function flightFinish(c) {
+    if (!c.switched) flightArrive(c);
+    const air = c.to;
+    const e = air.entrance;
+    P.x = e.x; P.y = W.TOP; P.z = e.z; P.vx = P.vy = P.vz = 0; P.eye = W.TOP + 1.62;
+    const t = S.abroad ? new THREE.Vector3(W.ABROAD.taxiStartX, W.TOP, W.ABROAD.taxiZ) : air.frame.pos(190.5, 0, 6);
+    P.yaw = Math.atan2(-(t.x - P.x), -(t.z - P.z));
+    endCut();
+    camera.position.set(P.x, P.eye, P.z);
+    camera.rotation.set(0, P.yaw, 0);
+    V.update(P.x, P.z, Infinity);
+    fadeEl().style.opacity = 0;
+    if (S.abroad) {
+      const co = countryById(S.abroad.id);
+      toast(`${co.hello}! Welcome to ${co.name}. Your taxi is waiting on the street.`);
+    } else toast('Welcome home to Akyar.');
+    A.success();
+    save();
+  }
+  function updateFlight(c, dt) {
+    c.t += dt;
+    const air = c.stage === 'landing' ? c.to : c.from;
+    const dir = air.frame.dirU;
+    if (c.stage === 'takeoff') {
+      c.speed = Math.min(78, c.speed + 7.5 * dt);
+      c.dist += c.speed * dt;
+      if (c.dist > 210) { c.pitch += (0.2 - c.pitch) * Math.min(1, dt * 1.2); c.y += Math.sin(c.pitch) * c.speed * dt; }
+      if (c.y > W.TOP + 150 || c.t > 26) {
+        c.stage = 'fadeout'; c.t = 0;
+        fadeEl().style.opacity = 1;
+      }
+    } else if (c.stage === 'fadeout') {
+      c.dist += c.speed * dt;
+      if (c.t > 0.8) {
+        c.stage = 'card'; c.t = 0;
+        flightArrive(c);
+        setCard(c.country ? `Flying to ${c.country.name}…` : 'Flying home to Akyar…');
+      }
+    } else if (c.stage === 'card') {
+      if (c.t > 2.6) {
+        setCard('');
+        c.stage = 'landing'; c.t = 0; c.speed = 62; c.dist = -520; c.y = W.TOP + 72; c.pitch = -0.1;
+        V.setBounds(AB);
+        fadeEl().style.opacity = 0;
+      }
+    } else if (c.stage === 'landing') {
+      const touch = 30;
+      if (c.dist < touch) {
+        c.dist += c.speed * dt;
+        c.y = W.TOP + 3.9 + Math.max(0, ((touch - c.dist) / (touch + 520)) * 68);
+        c.pitch = -0.09;
+      } else {
+        c.speed = Math.max(0, c.speed - 12 * dt);
+        c.dist += c.speed * dt;
+        c.y = W.TOP + 3.9;
+        c.pitch *= 1 - Math.min(1, dt * 3);
+        if (c.speed < 16 && fadeEl().style.opacity !== '1') { fadeEl().style.opacity = 1; c.fadeT = c.t; }
+        if (c.fadeT !== undefined && c.t - c.fadeT > 0.8) { flightFinish(c); return; }
+      }
+    }
+    if (c.stage !== 'card') {
+      const s = air.runwayStart;
+      const hh = air.heading;
+      camera.position.set(s.x + dir[0] * c.dist, c.y, s.z + dir[1] * c.dist);
+      camera.rotation.set(c.pitch, hh, 0);
+    }
+    A.setEngine(c.stage !== 'card', 0.4 + Math.min(0.6, c.speed / 110));
+  }
+  function skipCut() {
+    if (!cut) return;
+    if (cut.type === 'flight') flightFinish(cut);
+    else taxiFinish(cut);
+  }
+
+  // Taxi: a driver takes you along the street. The ride back starts in the opposite lane.
+  function startTaxi() {
+    const toHotel = S.abroad.taxiAt !== 'hotel';
+    const AA = W.ABROAD;
+    const c = { type: 'taxi', toHotel, x: toHotel ? AA.taxiStartX : SI.hotel.x, end: toHotel ? SI.hotel.x : AA.taxiStartX, z: toHotel ? AA.taxiZ : AA.z0 + AA.roadZ - 2, h: toHotel ? -Math.PI / 2 : Math.PI / 2, dir: toHotel ? 1 : -1, speed: 0, spin: 0 };
+    beginCut(c);
+    placeTaxi(c.x, c.z, c.h);
+    A.door();
+    A.ignition();
+    if (!S.flags.taxiHint) { S.flags.taxiHint = true; toast('Sit back and look around. ' + T('Press E', 'Tap SKIP') + ' to skip the ride.'); }
+  }
+  const taxiSeat = new THREE.Vector3(0.42, 1.34, 0.3);
+  function updateTaxi(c, dt) {
+    c.t += dt;
+    const left = (c.end - c.x) * c.dir;
+    const target = left < 22 ? Math.max(2.5, left * 0.6) : 15;
+    c.speed += clamp(target - c.speed, -6 * dt, 3.4 * dt);
+    c.x += c.dir * c.speed * dt;
+    c.spin += (c.speed / 0.34) * dt;
+    placeTaxi(c.x, c.z, c.h);
+    for (const w of taxiObj.userData.wheels) w.spin.rotation.x = -c.spin;
+    taxiObj.updateMatrixWorld(true);
+    camera.position.copy(taxiSeat).applyMatrix4(taxiObj.matrixWorld);
+    camera.rotation.set(P.pitch, c.h + lookYaw, 0);
+    A.setEngine(true, Math.min(1, c.speed / 27));
+    if (left < 0.6) taxiFinish(c);
+  }
+  function taxiFinish(c) {
+    placeTaxi(c.end, c.z, c.h);
+    const AA = W.ABROAD;
+    S.abroad.taxiAt = c.toHotel ? 'hotel' : 'airport';
+    if (c.toHotel) {
+      S.abroad.reachedHotel = true;
+      P.x = SI.hotel.x; P.z = AA.z0 - 5;
+      P.yaw = Math.PI; // facing the hotel door, to the south
+    } else {
+      P.x = AA.taxiStartX + 0.5; P.z = AA.z0 - 4;
+      P.yaw = Math.PI;
+      placeTaxi(AA.taxiStartX, AA.taxiZ, -Math.PI / 2);
+    }
+    P.y = W.TOP; P.vx = P.vy = P.vz = 0; P.eye = W.TOP + 1.62;
+    endCut();
+    camera.position.set(P.x, P.eye, P.z);
+    camera.rotation.set(0, P.yaw, 0);
+    A.door();
+    toast(c.toHotel ? 'Here is your hotel. Check in at the reception.' : 'Back at the airport. Your flight home is at the desk.');
+    save();
+  }
+
+  addI({
+    pos: () => SI.airHome.desk, range: 4.6,
+    active: () => !S.abroad,
+    label: () => (S.money >= TICKET_PRICE ? `Buy a ticket to a random country: ${TICKET_PRICE} ₽, hotel and taxi included` : `Ticket: ${TICKET_PRICE} ₽. You have ${S.money} ₽`),
+    act: () => {
+      if (S.money < TICKET_PRICE) { A.denied(); toast('Not enough money. A shift at the depot pays ' + SHIFT_PAY + ' ₽.'); return; }
+      S.money -= TICKET_PRICE;
+      S.flags.tripStarted = true;
+      A.coin();
+      const c = pickCountry();
+      toast(`Your ticket: ${c.name}. Boarding now.`);
+      startFlight(c);
+    },
+  });
+  addI({
+    pos: () => SI.airAbroad.desk, range: 4.6,
+    active: () => !!S.abroad,
+    label: () => 'Fly home to Akyar (return ticket)',
+    act: () => { A.coin(); startFlight(null); },
+  });
+  addI({
+    pos: () => PICK_TAXI.set(taxiPose.x, W.TOP + 1, taxiPose.z), range: 4.2, loose: true,
+    active: () => !!S.abroad,
+    label: () => (S.abroad.taxiAt === 'hotel' ? 'Take the taxi to the airport' : 'Take the taxi to the hotel'),
+    act: startTaxi,
+  });
+  addI({
+    pos: () => SI.hotel.reception, range: 4,
+    active: () => !!S.abroad,
+    label: () => {
+      if (!S.abroad.checkedIn) return 'Check in';
+      return S.abroad.mealDay === S.day ? 'Reception: breakfast is over for today' : 'Have breakfast: +40 food';
+    },
+    act: () => {
+      if (!S.abroad.checkedIn) { S.abroad.checkedIn = true; A.coin(); toast('Your room is through the doorway on the right.'); return; }
+      if (S.abroad.mealDay === S.day) { A.denied(); return; }
+      S.abroad.mealDay = S.day; S.hunger = Math.min(100, S.hunger + 40); A.eat(); toast('Breakfast: +40 food');
+    },
+  });
+  addI({
+    pos: () => SI.hotel.bed, range: 4, margin: 2,
+    active: () => !!S.abroad,
+    label: () => (S.abroad.checkedIn ? 'Sleep until morning' : 'Check in at the reception first'),
+    act: () => {
+      if (!S.abroad.checkedIn) { A.denied(); return; }
+      S.abroad.slept = true;
+      sleep();
+    },
+  });
+
   let currentI = null;
   const viewDir = new THREE.Vector3();
   function findInteract() {
-    if (S.inCar) return null;
+    if (S.inCar || cut) return null;
     camera.getWorldDirection(viewDir);
     const o = camera.position;
     let best = null, bestScore = -1e9;
@@ -749,7 +1114,7 @@
       if (dot < (it.loose ? T(0.82, 0.72) : T(0.87, 0.78))) continue;
       // Line of sight, stopping just short of the target.
       let blocked = false;
-      for (let t = 0.25; t < d - 1.3; t += 0.2) {
+      for (let t = 0.25; t < d - (it.margin || 1.3); t += 0.2) {
         if (V.solidAt(Math.floor(o.x + (dx / d) * t), Math.floor(o.y + (dy / d) * t), Math.floor(o.z + (dz / d) * t))) { blocked = true; break; }
       }
       if (blocked) continue;
@@ -759,6 +1124,7 @@
     return best;
   }
   function doInteract() {
+    if (cut) { skipCut(); return; }
     if (S.inCar) { exitCar(); return; }
     if (currentI) { armSwing = 1; currentI.act(); }
   }
@@ -817,7 +1183,15 @@
     { t: 'Dinner', d: () => T('Eat your food: press Q.', 'Eat your food: tap EAT.'), done: () => S.flags.ate },
     { t: 'The old chest', d: () => `A chest in your shed has three locks. Find the old keys around Akyar: ${Object.keys(S.keys).length}/${keysW.length}.`, done: () => Object.keys(S.keys).length >= keysW.length, tgt: () => { const k = nearestKey(); return k ? k.g.position : null; }, onStart: () => { S.flags.keysQuest = true; syncKeys(); toast('Follow the golden light beams on the horizon.'); } },
     { t: 'The old chest', d: () => 'Bring the keys home and open the chest in the shed.', done: () => S.flags.chestOpen, tgt: () => SI.home.chest },
-    { t: 'Free play', d: () => 'Keep the animals fed, work daily, explore Akyar. Flights to other countries are coming in a future update.', done: () => false },
+    { t: 'Going abroad', d: () => `The logbook points to the airport near your house. Buy a ticket at the desk: ${TICKET_PRICE} ₽. Then fly home again.`, done: () => S.flags.returnedHome, tgt: () => { const a = SI.airHome; return nearE(a.entrance) < 25 ? a.desk : a.entrance; } },
+    { t: 'Free play', d: () => 'Keep the animals fed, work daily, explore Akyar, and fly somewhere new whenever you can afford it.', done: () => false },
+  ];
+  // Shown instead of the main quests while on a trip.
+  const TRIP_QUESTS = [
+    { t: 'Abroad', d: () => `Welcome to ${countryById(S.abroad.id).name}. Take the taxi to the hotel.`, done: () => S.abroad.reachedHotel, tgt: () => PICK_TAXI.set(taxiPose.x, W.TOP, taxiPose.z) },
+    { t: 'Abroad', d: () => 'Go inside and check in at the reception.', done: () => S.abroad.checkedIn, tgt: () => SI.hotel.reception },
+    { t: 'Abroad', d: () => 'Your room is through the doorway on the right. Get some sleep.', done: () => S.abroad.slept, tgt: () => SI.hotel.bed },
+    { t: 'Going home', d: () => (S.abroad.taxiAt === 'hotel' ? 'Take the taxi back to the airport.' : 'Fly home at the airport desk.'), done: () => false, tgt: () => (S.abroad.taxiAt === 'hotel' ? PICK_TAXI.set(taxiPose.x, W.TOP, taxiPose.z) : SI.airAbroad.desk) },
   ];
   function nearestKey() {
     let best = null, bd = 1e9;
@@ -829,10 +1203,10 @@
     let moved = false;
     while (S.questIdx < QUESTS.length - 1 && QUESTS[S.questIdx].done()) { S.questIdx++; moved = true; if (QUESTS[S.questIdx].onStart) QUESTS[S.questIdx].onStart(); }
     if (moved) { A.success(); }
-    const q = QUESTS[S.questIdx];
+    const q = S.abroad ? TRIP_QUESTS.find((x) => !x.done()) : QUESTS[S.questIdx];
     $('quest-title').textContent = q.t;
     $('quest-text').textContent = q.d();
-    const tgt = q.tgt ? q.tgt() : null;
+    const tgt = q.tgt && !cut ? q.tgt() : null;
     const el = $('quest-target');
     if (tgt) {
       el.style.display = '';
@@ -875,7 +1249,7 @@
     const yaw = S.inCar ? S.ch + lookYaw : P.yaw;
     const brg = ((-yaw * 180) / Math.PI % 360 + 360) % 360;
     $('compass').textContent = CARD[Math.round(brg / 45) % 8];
-    $('street').textContent = W.roadNameAt(P.x, P.z) || 'Akyar';
+    $('street').textContent = S.abroad ? `${W.roadNameAt(P.x, P.z) || countryById(S.abroad.id).city}, ${countryById(S.abroad.id).name}` : W.roadNameAt(P.x, P.z) || 'Akyar';
     if (S.inCar) $('speed').textContent = Math.round(Math.abs(car.speed) * 3.6);
     if (miniT <= 0) { miniT = 0.2; drawMini(yaw, tgt); }
   }
@@ -889,7 +1263,23 @@
     c.beginPath(); c.moveTo(0, -size * 1.4); c.lineTo(size, size); c.lineTo(0, size * 0.5); c.lineTo(-size, size); c.closePath();
     c.fillStyle = '#ff4b3e'; c.strokeStyle = '#fff'; c.lineWidth = 2; c.fill(); c.stroke(); c.restore();
   }
+  function drawMiniAbroad(yaw, tgt) {
+    const c = miniC, S0 = 190, span = 380, k = S0 / span, AA = W.ABROAD;
+    const toS = (x, z) => [S0 / 2 + (x - P.x) * k, S0 / 2 + (z - P.z) * k];
+    c.fillStyle = '#7f9458'; c.fillRect(0, 0, S0, S0);
+    c.strokeStyle = '#5f5f62'; c.lineWidth = 5;
+    let a = toS(AA.x0 + 40, AA.z0 + AA.roadZ), b = toS(AA.x0 + 740, AA.z0 + AA.roadZ);
+    c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    a = toS(AA.x0 + 6, AA.z0 + 73); b = toS(AA.x0 + 374, AA.z0 + 73);
+    c.lineWidth = 12; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    const pin = (v, col, label) => { let [x, y] = toS(v.x, v.z); x = clamp(x, 8, S0 - 8); y = clamp(y, 8, S0 - 8); drawMarker(c, x, y, col, label); };
+    pin(SI.airAbroad.entrance, '#d9a6ff', 'A');
+    pin(SI.hotel.entrance, '#59a6ff', 'H');
+    if (tgt) pin(tgt, '#ffe27a');
+    drawArrow(c, S0 / 2, S0 / 2, yaw);
+  }
   function drawMini(yaw, tgt) {
+    if (S.abroad) { drawMiniAbroad(yaw, tgt); return; }
     const c = miniC, S0 = 190, span = 380, k = S0 / span;
     c.fillStyle = '#7fa04f'; c.fillRect(0, 0, S0, S0);
     c.imageSmoothingEnabled = false;
@@ -900,6 +1290,7 @@
     pin(SI.home.center, '#6fd36f', 'H');
     pin(SI.shop.entrance, '#59a6ff', 'S');
     pin(SI.work.entrance, '#ffb347', 'W');
+    pin(SI.airHome.entrance, '#d9a6ff', 'A');
     if (tgt) pin(tgt, '#ffe27a');
     if (S.inCar) { const [cx, cy] = toS(S.cx, S.cz); void cx; void cy; } else { const [x, y] = toS(S.cx, S.cz); if (x > 0 && x < S0 && y > 0 && y < S0) { c.fillStyle = '#fff'; c.fillRect(x - 3, y - 3, 6, 6); } }
     drawArrow(c, S0 / 2, S0 / 2, yaw);
@@ -942,12 +1333,14 @@
     let [x, y] = toC(SI.home.center.x, SI.home.center.z); drawMarker(c, x, y, '#6fd36f', 'Home');
     [x, y] = toC(SI.shop.entrance.x, SI.shop.entrance.z); drawMarker(c, x, y, '#59a6ff', 'Shop');
     [x, y] = toC(SI.work.entrance.x, SI.work.entrance.z); drawMarker(c, x, y, '#ffb347', 'Work: Parcel Depot');
+    [x, y] = toC(SI.airHome.entrance.x, SI.airHome.entrance.z); drawMarker(c, x, y, '#d9a6ff', 'Airport');
     if (S.flags.keysQuest) keysW.forEach((kw) => { if (!S.keys[kw.id]) { const q = toC(kw.x, kw.z); drawMarker(c, q[0], q[1], '#ffe27a', 'Key'); } });
     const pp = toC(P.x, P.z);
     drawArrow(c, pp[0], pp[1], S.inCar ? S.ch : P.yaw, 9);
     c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillRect(0, 0, 100, 20); c.fillStyle = '#fff'; c.font = '12px sans-serif'; c.fillText('N ▲  zoom ' + mapZoom + 'x', 6, 14);
   }
   function toggleMap() {
+    if (S.abroad && !mapOpen) { toast('There is no town map here. Use the taxi and the small map.'); return; }
     mapOpen = !mapOpen;
     $('bigmap-wrap').classList.toggle('hidden', !mapOpen);
     if (mapOpen) drawBig();
@@ -1028,7 +1421,8 @@
     }
   }
   function applyLook(dx, dy, s) {
-    if (S.inCar) { lookYaw = clamp(lookYaw - dx * s, -2.2, 2.2); P.pitch = clamp(P.pitch - dy * s, -1.0, 0.8); }
+    if (S.inCar || (cut && cut.type === 'taxi')) { lookYaw = clamp(lookYaw - dx * s, -2.2, 2.2); P.pitch = clamp(P.pitch - dy * s, -1.0, 0.8); }
+    else if (cut) { /* flights have a fixed camera */ }
     else { P.yaw -= dx * s; P.pitch = clamp(P.pitch - dy * s, -1.54, 1.54); }
   }
   addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -1091,6 +1485,7 @@
     G.touch.init({
       keys, action, zoomMap,
       inCar: () => S.inCar,
+      noWalk: () => S.inCar || !!cut,
       look: (dx, dy) => { if (!paused && !mapOpen) applyLook(dx, dy, 0.0055); },
       pause: showPause,
     });
@@ -1135,11 +1530,12 @@
       car.y = S.cy;
       hens.forEach((h, i) => { h.fed = !!S.hens[i]; });
       cats.forEach((c, i) => { c.fed = !!S.cats[i]; });
+      applyPlace();
       return true;
     } catch (e) { return false; }
   }
   function save() {
-    if (DEV) return;
+    if (DEV || cut) return;
     try { localStorage.setItem(SAVE_KEY, exportSave()); } catch (e) { /* private mode */ }
   }
   function load() {
@@ -1153,7 +1549,8 @@
   // ---------- main loop ----------
   function tick(dt) {
     updateTime(dt);
-    if (S.inCar) { updateCar(dt); updateCarCamera(); } else { updatePlayer(dt); syncCarObj(); }
+    if (cut) { if (cut.type === 'flight') updateFlight(cut, dt); else updateTaxi(cut, dt); }
+    else if (S.inCar) { updateCar(dt); updateCarCamera(); } else { updatePlayer(dt); syncCarObj(); }
     hens.forEach((a) => updateAnimal(a, dt));
     cats.forEach((a) => updateAnimal(a, dt));
     doors.forEach((d) => {
@@ -1169,8 +1566,9 @@
     }
     currentI = findInteract();
     const pr = $('prompt');
-    if (currentI) { pr.classList.remove('hidden'); pr.innerHTML = `${T('<b>[E]</b> ', '')}${currentI.label()}`; } else pr.classList.add('hidden');
-    if (TOUCH) G.touch.update(currentI);
+    if (cut) { pr.classList.remove('hidden'); pr.innerHTML = `${T('<b>[E]</b> ', '')}Skip the ${cut.type === 'flight' ? 'flight' : 'ride'}`; }
+    else if (currentI) { pr.classList.remove('hidden'); pr.innerHTML = `${T('<b>[E]</b> ', '')}${currentI.label()}`; } else pr.classList.add('hidden');
+    if (TOUCH) G.touch.update(currentI, !!cut);
     const tgt = updateQuests();
     updateHud(dt, tgt);
     if (mapOpen) { mapT -= dt; if (mapT <= 0) { mapT = 0.4; drawBig(); } }
@@ -1186,7 +1584,6 @@
     U.uTime.value = performance.now() / 1000;
     updateSky(S.hour);
     dome.position.copy(b);
-    clouds.position.x = (performance.now() / 1000) * 1.4 % 800;
     renderer.render(scene, camera);
   }
 
@@ -1215,10 +1612,14 @@
     status.textContent = 'Drawing the map of Akyar…';
     setTimeout(() => {
       drawMap();
-      V.buildFar(mapCanvas);
+      drawGround();
+      V.buildGround(groundCanvas);
+      V.buildFlats();
+      V.buildFar();
       status.textContent = 'Building the village…';
       setTimeout(() => {
         const hadSave = load();
+        applyPlace();
         syncCarObj();
         syncKeys();
         renderInv();
@@ -1243,6 +1644,7 @@
     interactNow: () => doInteract(),
     current: () => currentI,
     buy, openShop, closeShop, eatNext, sleep, exportSave, importSave,
+    COUNTRIES, startFlight, skipCut, pickCountry, applyPlace, isCut: () => !!cut, cutInfo: () => cut, taxiPose: () => taxiPose, countryById, TICKET_PRICE, TRIP_QUESTS,
     isTouch: TOUCH, isPaused: () => paused, isStarted: () => started, isMapOpen: () => mapOpen, mapZoom: () => mapZoom, touchLevel: () => touchLevel, adaptQuality,
     isCarrying: () => carrying,
     setYawPitch(y, p) { P.yaw = y; P.pitch = p; },

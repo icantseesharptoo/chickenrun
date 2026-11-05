@@ -1,4 +1,5 @@
-// Turns the baked map (data/akyar.js) into voxel columns: terrain, water, roads, buildings, sites.
+// World description. The ground is flat. Voxels here are only for collision and block-built interiors;
+// generic buildings, trees, roads and water are drawn as smooth meshes by mesher.js.
 // Every column is a pure function of (x, z), so chunks can be generated in any order.
 (function () {
   'use strict';
@@ -6,27 +7,36 @@
   const { B } = G.blocks;
   const D = window.AKYAR;
   const CELL = 32;
-  const BANK = 18;
+  const GROUND_Y = 29;      // block index of the ground layer
+  const TOP = GROUND_Y + 1; // the walkable surface
+
+  // Other countries share one template, placed far beyond the fog so it can never be seen from Akyar.
+  const ABROAD = { x0: 20000, z0: 0, roadZ: -12, hotelX: 20613, taxiStartX: 20190, taxiZ: -10 };
+  ABROAD.bounds = { x0: ABROAD.x0 - 30, x1: ABROAD.x0 + 760, z0: -70, z1: 130 };
   const bounds = D.meta.bounds;
 
-  const decode16 = (b64) => {
-    const bin = atob(b64), out = new Int16Array(bin.length / 2);
-    for (let i = 0; i < out.length; i++) out[i] = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8);
-    return out;
-  };
-  const dem = Object.assign({}, D.dem, { v: decode16(D.dem.b64) });
-  const demFar = Object.assign({}, D.demFar, { v: decode16(D.demFar.b64) });
-
-  function sampleGrid(g, x, z) {
-    const fx = Math.max(0, Math.min(g.w - 1.001, (x - g.x0) / g.step));
-    const fz = Math.max(0, Math.min(g.h - 1.001, (z - g.z0) / g.step));
-    const ix = fx | 0, iz = fz | 0, tx = fx - ix, tz = fz - iz, w = g.w, v = g.v;
-    const a = v[ix + iz * w] * (1 - tx) + v[ix + 1 + iz * w] * tx;
-    const b = v[ix + (iz + 1) * w] * (1 - tx) + v[ix + 1 + (iz + 1) * w] * tx;
-    return (a * (1 - tz) + b * tz) / 10;
+  function addAbroadTemplate() {
+    let roadName = D.roadNames.indexOf('Airport Road');
+    if (roadName < 0) roadName = D.roadNames.push('Airport Road') - 1;
+    const { x0, z0, roadZ } = ABROAD;
+    D.roads.push(['secondary', roadName, 'asphalt', [x0 + 40, z0 + roadZ, x0 + 740, z0 + roadZ]]);
+    const rect = (bx0, bz0, bx1, bz1) => [bx0, bz0, bx1, bz0, bx1, bz1, bx0, bz1];
+    const kinds = ['apartments', 'big', 'house', 'apartments', 'house', 'big'];
+    let k = 0;
+    // North side of the street
+    for (let x = x0 + 70; x < x0 + 730; x += 36) {
+      const w = 22 + (k % 3) * 4;
+      D.buildings.push({ k: kinds[k % 6], n: '', l: kinds[k % 6] === 'apartments' ? 4 + (k % 2) : 0, p: rect(x, z0 + roadZ - 26, x + w, z0 + roadZ - 12) });
+      k++;
+    }
+    // South side, between the airport and the hotel, then beyond it
+    for (const x of [x0 + 400, x0 + 436, x0 + 472, x0 + 508, x0 + 544, x0 + 650, x0 + 690]) {
+      const w = 20 + (k % 3) * 4;
+      D.buildings.push({ k: kinds[k % 6], n: '', l: kinds[k % 6] === 'apartments' ? 3 + (k % 3) : 0, p: rect(x, z0 + roadZ + 12, x + w, z0 + roadZ + 26) });
+      k++;
+    }
   }
-  const elevation = (x, z) => sampleGrid(dem, x, z);
-  const elevationFar = (x, z) => sampleGrid(demFar, x, z);
+  addAbroadTemplate();
 
   // Landuse raster
   const lu = D.landuse;
@@ -49,16 +59,17 @@
   // ---------- spatial index ----------
   const index = new Map();
   const cellOf = (v) => Math.floor(v / CELL);
+  const ikey = (cx, cz) => cx * 100000 + cz;
   function addToIndex(kind, item, x0, z0, x1, z1) {
     for (let cz = cellOf(z0); cz <= cellOf(z1); cz++) for (let cx = cellOf(x0); cx <= cellOf(x1); cx++) {
-      const k = cx * 100000 + cz;
+      const k = ikey(cx, cz);
       let e = index.get(k);
       if (!e) index.set(k, (e = { roads: [], blds: [], rivers: [], waters: [], sites: [] }));
       e[kind].push(item);
     }
   }
   const EMPTY = { roads: [], blds: [], rivers: [], waters: [], sites: [] };
-  const lookup = (x, z) => index.get(cellOf(x) * 100000 + cellOf(z)) || EMPTY;
+  const lookup = (x, z) => index.get(ikey(cellOf(x), cellOf(z))) || EMPTY;
 
   function pointInPoly(p, x, z) {
     let c = false;
@@ -93,22 +104,17 @@
     }
   });
 
-  // Rivers / ponds
+  // Rivers and ponds
   D.rivers.forEach((rv) => {
     for (let i = 0; i + 3 < rv.p.length; i += 2) {
       const ax = rv.p[i], az = rv.p[i + 1], bx = rv.p[i + 2], bz = rv.p[i + 3];
-      const m = rv.w / 2 + BANK + 2;
-      addToIndex('rivers', { ax, az, bx, bz, w: rv.w, l0: rv.l[i / 2], l1: rv.l[i / 2 + 1] }, Math.min(ax, bx) - m, Math.min(az, bz) - m, Math.max(ax, bx) + m, Math.max(az, bz) + m);
+      const m = rv.w / 2 + 6;
+      addToIndex('rivers', { ax, az, bx, bz, w: rv.w }, Math.min(ax, bx) - m, Math.min(az, bz) - m, Math.max(ax, bx) + m, Math.max(az, bz) + m);
     }
   });
   D.waters.forEach((wt) => {
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
-    for (let i = 0; i < wt.p.length; i += 2) {
-      x0 = Math.min(x0, wt.p[i]); x1 = Math.max(x1, wt.p[i]); z0 = Math.min(z0, wt.p[i + 1]); z1 = Math.max(z1, wt.p[i + 1]);
-      const j = (i + 2) % wt.p.length;
-      const ax = wt.p[i], az = wt.p[i + 1], bx = wt.p[j], bz = wt.p[j + 1], m = BANK + 2;
-      addToIndex('rivers', { ax, az, bx, bz, w: 0, l0: wt.l, l1: wt.l }, Math.min(ax, bx) - m, Math.min(az, bz) - m, Math.max(ax, bx) + m, Math.max(az, bz) + m);
-    }
+    for (let i = 0; i < wt.p.length; i += 2) { x0 = Math.min(x0, wt.p[i]); x1 = Math.max(x1, wt.p[i]); z0 = Math.min(z0, wt.p[i + 1]); z1 = Math.max(z1, wt.p[i + 1]); }
     addToIndex('waters', wt, x0, z0, x1, z1);
   });
 
@@ -118,45 +124,59 @@
     ['WALL_TEAL', 'WIN_TEAL'], ['WALL_PEACH', 'WIN_PEACH'], ['WALL_LOG', 'WIN_LOG'], ['BRICK_WHITE', 'WIN_WHITEBRICK'],
   ];
   const ROOFS = ['ROOF_RED', 'ROOF_GREEN', 'ROOF_BLUE', 'ROOF_GRAY', 'ROOF_BROWN'];
+  const byChunk = new Map(); // meshes are emitted by the chunk that holds the building's centre
+  const chunkList = (x, z, field) => {
+    const k = ikey(cellOf(x), cellOf(z));
+    let e = byChunk.get(k);
+    if (!e) byChunk.set(k, (e = { blds: [], roofs: [], trees: [] }));
+    return e[field];
+  };
 
   const buildings = D.buildings.map((d, i) => {
     const p = d.p;
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, sx = 0, sz = 0;
-    const heights = [];
     let longest = 0, ax = 1, az = 0;
     for (let k = 0; k < p.length; k += 2) {
       x0 = Math.min(x0, p[k]); x1 = Math.max(x1, p[k]); z0 = Math.min(z0, p[k + 1]); z1 = Math.max(z1, p[k + 1]);
       sx += p[k]; sz += p[k + 1];
-      heights.push(elevation(p[k], p[k + 1]));
       const n = (k + 2) % p.length, ex = p[n] - p[k], ez = p[n + 1] - p[k + 1], l = Math.hypot(ex, ez);
       if (l > longest) { longest = l; ax = ex / l; az = ez / l; }
     }
-    heights.sort((a, b) => a - b);
     const n = p.length / 2;
-    const b = { i, k: d.k, name: d.n, p, x0, z0, x1, z1, cx: sx / n, cz: sz / n, ax, az, base: Math.floor(heights[heights.length >> 1]) + 1 };
-    // Ridge axis coordinates for pitched roofs.
-    let v0 = 1e9, v1 = -1e9;
-    for (let k = 0; k < p.length; k += 2) { const v = -(p[k] - b.cx) * az + (p[k + 1] - b.cz) * ax; v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
-    b.v0 = v0; b.v1 = v1;
+    const b = { i, k: d.k, name: d.n, p, x0, z0, x1, z1, cx: sx / n, cz: sz / n, ax, az, base: TOP };
+    // Local axes of the footprint, for gable roofs.
+    let v0 = 1e9, v1 = -1e9, u0 = 1e9, u1 = -1e9, area = 0;
+    for (let k = 0; k < p.length; k += 2) {
+      const dx = p[k] - b.cx, dz = p[k + 1] - b.cz;
+      const v = -dx * az + dz * ax, u = dx * ax + dz * az;
+      v0 = Math.min(v0, v); v1 = Math.max(v1, v); u0 = Math.min(u0, u); u1 = Math.max(u1, u);
+      const m = (k + 2) % p.length;
+      area += p[k] * p[m + 1] - p[m] * p[k + 1];
+    }
+    b.v0 = v0; b.v1 = v1; b.u0 = u0; b.u1 = u1;
+    b.ccw = area > 0;
+    b.rectish = Math.abs(area / 2) / Math.max(1, (v1 - v0) * (u1 - u0)) > 0.82;
     const r = hash(i, 91);
     const levels = d.l;
     switch (d.k) {
-      case 'shed': b.h = 3; b.wall = hash(i, 3) < 0.5 ? 'METAL' : 'PLANKS'; b.win = b.wall; b.roof = 'ROOF_GRAY'; b.pitch = 0.45; break;
+      case 'shed': b.h = 2.6; b.wall = hash(i, 3) < 0.5 ? 'METAL' : 'PLANKS'; b.win = b.wall; b.roof = 'ROOF_GRAY'; b.pitch = 0.35; break;
       case 'house': { const w = WALLSETS[hashI(i, 17, WALLSETS.length)]; b.h = (levels || 1) * 3; b.wall = w[0]; b.win = w[1]; b.roof = ROOFS[hashI(i, 29, ROOFS.length)]; b.pitch = 0.55; break; }
       case 'apartments': b.h = (levels || 5) * 3; b.wall = 'BRICK_WHITE'; b.win = 'WIN_WHITEBRICK'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
-      case 'civic': b.h = (levels || 2 + (r < 0.5 ? 1 : 0)) * 4; b.wall = r < 0.5 ? 'BRICK_RED' : 'PLASTER'; b.win = r < 0.5 ? 'WIN_BRICK' : 'WIN_PLASTER'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
-      case 'retail': case 'shop': b.h = (levels || 1) * 5; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
+      case 'civic': b.h = (levels || 2 + (r < 0.5 ? 1 : 0)) * 3.5; b.wall = r < 0.5 ? 'BRICK_RED' : 'PLASTER'; b.win = r < 0.5 ? 'WIN_BRICK' : 'WIN_PLASTER'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
+      case 'retail': b.h = (levels || 1) * 4.5; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
+      case 'shop': b.h = 5; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
       case 'industrial': b.h = 6; b.wall = 'METAL'; b.win = 'METAL'; b.roof = 'ROOF_GRAY'; b.pitch = 0.2; break;
       case 'work': b.h = 6; b.wall = 'BRICK_RED'; b.win = 'WIN_BRICK'; b.roof = 'FLAT_ROOF'; b.pitch = 0; break;
       case 'big': b.h = (levels || 2) * 3 + 1; b.wall = r < 0.5 ? 'CONCRETE' : 'BRICK_RED'; b.win = r < 0.5 ? 'WIN_CONCRETE' : 'WIN_BRICK'; b.roof = 'ROOF_GRAY'; b.pitch = 0.15; break;
-      case 'mosque': b.h = 7; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'DOME_GREEN'; b.pitch = 0.7; b.tower = 'DOME_GREEN'; break;
-      case 'church': b.h = 7; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'ROOF_BLUE'; b.pitch = 0.7; b.tower = 'DOME_GOLD'; break;
+      case 'mosque': b.h = 7; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'DOME_GREEN'; b.pitch = 0.5; b.tower = 'dome_green'; break;
+      case 'church': b.h = 7; b.wall = 'PLASTER'; b.win = 'WIN_PLASTER'; b.roof = 'ROOF_BLUE'; b.pitch = 0.6; b.tower = 'dome_gold'; break;
       default: b.h = 3; b.wall = 'CONCRETE'; b.win = 'CONCRETE'; b.roof = 'ROOF_GRAY'; b.pitch = 0.3;
     }
-    if (b.tower) { b.tx = Math.floor(p[0] + (b.cx - p[0]) * 0.18); b.tz = Math.floor(p[1] + (b.cz - p[1]) * 0.18); }
-    b.roofRise = b.pitch ? Math.min(b.k === 'big' || b.k === 'industrial' ? 3 : 6, Math.ceil(((v1 - v0) / 2) * b.pitch)) : 0;
+    if (b.tower) { b.tx = p[0] + (b.cx - p[0]) * 0.18; b.tz = p[1] + (b.cz - p[1]) * 0.18; }
+    b.roofRise = b.pitch ? Math.min(b.k === 'big' || b.k === 'industrial' ? 2.5 : 4.5, ((v1 - v0) / 2) * b.pitch) : 0;
     b.top = b.base + b.h + b.roofRise + (b.tower ? 12 : 1);
     addToIndex('blds', b, x0 - 1, z0 - 1, x1 + 1, z1 + 1);
+    chunkList(b.cx, b.cz, 'blds').push(b);
     return b;
   });
 
@@ -171,35 +191,18 @@
   }
   const inB = (b, x, z) => pointInPoly(b.p, x + 0.5, z + 0.5);
 
-  // Decorative front door: the footprint edge midpoint nearest a road, walked inward onto a wall cell.
-  function doorCell(b) {
-    if (b.door !== undefined) return b.door;
-    let best = 1e12, bm = null;
-    for (let k = 0; k < b.p.length; k += 2) {
-      const n = (k + 2) % b.p.length;
-      const mx = (b.p[k] + b.p[n]) / 2, mz = (b.p[k + 1] + b.p[n + 1]) / 2;
-      let d = 900;
-      const near = lookup(mx, mz).roads;
-      for (let s = 0; s < near.length; s++) d = Math.min(d, segDist(mx, mz, near[s]).d);
-      if (d < best) { best = d; bm = [mx, mz]; }
-    }
-    let dx = b.cx - bm[0], dz = b.cz - bm[1];
-    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
-    b.door = null;
-    for (let t = 0; t < 4; t += 0.4) {
-      const x = Math.floor(bm[0] + dx * t), z = Math.floor(bm[1] + dz * t);
-      if (inB(b, x, z)) { b.door = [x, z]; break; }
-    }
-    return b.door;
-  }
-
   // ---------- special sites registered by sites.js ----------
   const sites = [];
   function addSite(s) {
     sites.push(s);
-    const m = s.blend || 0;
-    addToIndex('sites', s, s.x0 - m, s.z0 - m, s.x1 + m, s.z1 + m);
+    addToIndex('sites', s, s.x0, s.z0, s.x1, s.z1);
   }
+  // Extras drawn as meshes: pitched roofs, yard trees, flat pads and markings, far-view boxes.
+  const flats = [], farBoxes = [];
+  const addRoof = (o) => chunkList((o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2, 'roofs').push(o);
+  const addFlat = (o) => flats.push(o);
+  const addFarBox = (o) => farBoxes.push(o);
+  function addTree(x, z, birch, h) { chunkList(x, z, 'trees').push({ x, z, y: TOP, birch, h, fixed: true }); }
 
   function segDist(x, z, s) {
     const dx = s.bx - s.ax, dz = s.bz - s.az;
@@ -209,167 +212,68 @@
     const qx = s.ax + t * dx, qz = s.az + t * dz;
     return { d: Math.hypot(x - qx, z - qz), t };
   }
-  const smooth = (k) => k * k * (3 - 2 * k);
 
   // Full description of a column. Result object is reused, so copy what you keep.
-  const out = { ground: 0, surf: 0, water: -1, deck: -1, b: null, road: false, site: null, sand: false, luClass: 0 };
+  const out = { ground: GROUND_Y, surf: B.GROUND, water: -1, deck: -1, b: null, road: false, site: null, sand: false, luClass: 0, roadName: '' };
   function column(x, z) {
     const e = lookup(x, z);
     const px = x + 0.5, pz = z + 0.5;
-    const raw = elevation(px, pz);
-    const cls = landuse(px, pz);
-    let surf;
-    switch (cls) {
-      case LU.FOREST: surf = B.FOREST; break;
-      case LU.INDUSTRIAL: case LU.CONSTRUCTION: surf = B.GRAVEL; break;
-      case LU.STEPPE: surf = B.STEPPE; break;
-      case LU.WETLAND: surf = B.FOREST; break;
-      case LU.PITCH: surf = B.GRASS; break;
-      case LU.PARKING: surf = B.ASPHALT; break;
-      case LU.PLAYGROUND: surf = B.SAND; break;
-      default: surf = B.GRASS;
-    }
-    // Outside town proper the map has no landuse tag: blend in dry steppe colouring.
-    if (cls === LU.GRASS && hash(x >> 4, z >> 4) < 0.22) surf = B.STEPPE;
-
-    let g = raw, water = -1, sand = false, bestD = 1e9;
+    let water = false, sand = false;
     const rv = e.rivers;
     for (let i = 0; i < rv.length; i++) {
       const s = rv[i], q = segDist(px, pz, s), r = s.w / 2;
-      if (q.d > r + BANK) continue;
-      const edge = q.d - r;
-      if (edge < bestD) {
-        bestD = edge;
-        const lvl = s.l0 + (s.l1 - s.l0) * q.t;
-        if (edge <= 0) { water = Math.floor(lvl); g = water - (edge < -2 ? 2 : 1); sand = true; }
-        else {
-          water = -1;
-          const k = smooth(Math.min(1, edge / BANK));
-          g = lvl + 1 + (raw - (lvl + 1)) * k;
-          sand = edge < 3;
-        }
-      }
+      if (q.d <= r) water = true;
+      if (q.d <= r + 4) sand = true;
     }
     const wp = e.waters;
-    for (let i = 0; i < wp.length; i++) if (pointInPoly(wp[i].p, px, pz)) { water = wp[i].l; g = water - 2; sand = true; }
-    if (sand) surf = B.SAND;
+    for (let i = 0; i < wp.length; i++) if (pointInPoly(wp[i].p, px, pz)) { water = true; sand = true; }
 
-    // Sites: flatten to the site's level, blending into terrain around it.
     let site = null;
     const st = e.sites;
     for (let i = 0; i < st.length; i++) {
       const s = st[i];
-      const dx = Math.max(s.x0 - px, 0, px - s.x1), dz = Math.max(s.z0 - pz, 0, pz - s.z1);
-      const d = Math.hypot(dx, dz);
-      if (d === 0) { site = s; g = s.y - 1; water = -1; surf = s.surf || B.GRASS; }
-      else if (s.blend && d < s.blend) { g = (s.y - 1) + (g - (s.y - 1)) * smooth(d / s.blend); }
+      if (px >= s.x0 && px <= s.x1 && pz >= s.z0 && pz <= s.z1) { site = s; water = false; }
     }
+    out.b = null; out.road = false; out.deck = -1; out.site = site; out.luClass = landuse(px, pz); out.sand = sand;
+    out.ground = GROUND_Y; out.surf = B.GROUND; out.water = -1; out.roadName = '';
+    if (site) return out;
 
-    out.b = null; out.road = false; out.deck = -1; out.site = site; out.luClass = cls; out.sand = sand;
-
-    if (!site) {
-      const list = e.blds;
-      for (let i = 0; i < list.length; i++) {
-        const b = list[i];
-        if (px >= b.x0 && px <= b.x1 && pz >= b.z0 && pz <= b.z1 && pointInPoly(b.p, px, pz)) {
-          out.b = b; out.ground = b.base - 1; out.surf = B.STONE; out.water = -1;
-          return out;
-        }
-      }
-      const rd = e.roads;
-      let roadD = 1e9;
-      for (let i = 0; i < rd.length; i++) {
-        const s = rd[i], q = segDist(px, pz, s);
-        // Bridge decks are wider than the road, so a car that is slightly off-centre stays dry.
-        if (water >= 0 && s.r.type !== 'footway' && s.r.type !== 'path' && q.d <= s.r.w / 2 + 2.5) out.deck = water + 1;
-        if (q.d <= s.r.w / 2 && q.d < roadD) {
-          roadD = q.d; out.road = true;
-          const r = s.r;
-          surf = r.surf === 'asphalt' ? B.ASPHALT : r.surf === 'gravel' ? B.GRAVEL : B.DIRT_ROAD;
-          if (r.line && q.d < 0.5 && Math.floor((s.run + q.t * s.len) / 4) % 2 === 0) surf = B.ROAD_LINE;
-          out.roadName = r.name;
-        }
-      }
-      if (out.road && water >= 0) out.deck = water + 1;
+    const list = e.blds;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (px >= b.x0 && px <= b.x1 && pz >= b.z0 && pz <= b.z1 && pointInPoly(b.p, px, pz)) { out.b = b; return out; }
     }
-    out.ground = Math.floor(g);
-    out.surf = surf;
-    out.water = water;
+    const rd = e.roads;
+    let roadD = 1e9;
+    for (let i = 0; i < rd.length; i++) {
+      const s = rd[i], q = segDist(px, pz, s);
+      // Bridge decks are wider than the road, so a car that is slightly off-centre stays dry.
+      if (water && s.r.type !== 'footway' && s.r.type !== 'path' && q.d <= s.r.w / 2 + 2.5) out.deck = GROUND_Y;
+      if (q.d <= s.r.w / 2 && q.d < roadD) { roadD = q.d; out.road = true; out.roadName = s.r.name; }
+    }
+    if (water && out.deck < 0) out.water = GROUND_Y;
     return out;
   }
 
-  // Stack blocks for an OSM building column into the chunk setter.
-  function buildingStack(b, x, z, set) {
-    if (b.interior && b.interior(x, z, set)) return;
-    const base = b.base, h = b.h, top = base + h;
-    const perim = !(inB(b, x + 1, z) && inB(b, x - 1, z) && inB(b, x, z + 1) && inB(b, x, z - 1));
-    const wall = B[b.wall], win = B[b.win];
-    const door = perim ? doorCell(b) : null;
-    const isDoor = door && door[0] === x && door[1] === z;
-    const floors = b.k === 'civic' ? 4 : 3;
-    for (let y = base; y < top; y++) {
-      let c = wall;
-      if (perim && win !== wall) {
-        const fy = y - base;
-        if (fy % floors === 1 && (b.k === 'house' ? (x + z) % 3 !== 0 : (x + z) % 2 === 0)) c = win;
-      }
-      if (isDoor && y - base < 2) c = B.DOOR_DECOR;
-      set(x, y, z, c);
-    }
-    const roof = B[b.roof];
-    if (b.roofRise) {
-      const v = -(x + 0.5 - b.cx) * b.az + (z + 0.5 - b.cz) * b.ax;
-      const r = Math.min(b.roofRise, Math.floor(Math.min(v - b.v0, b.v1 - v) * b.pitch));
-      for (let y = top; y <= top + Math.max(0, r); y++) set(x, y, z, roof);
-    } else {
-      set(x, top, z, perim ? wall : roof);
-    }
-    if (b.tower) {
-      const dx = x - b.tx, dz = z - b.tz, d = Math.max(Math.abs(dx), Math.abs(dz));
-      if (d <= 1) for (let y = top; y < top + 8 - d; y++) set(x, y, z, d === 0 && y > top + 6 ? B[b.tower] : B.PLASTER);
-      if (d === 0) for (let y = top + 7; y < top + 11; y++) set(x, y, z, B[b.tower]);
-    }
-  }
-
-  // ---------- trees: one candidate per 6x6 cell ----------
+  // ---------- trees: far fewer than before, one candidate per 6x6 cell ----------
   function treeAt(cellX, cellZ) {
     const r = hash(cellX * 3 + 11, cellZ * 7 - 5);
     const tx = cellX * 6 + hashI(cellX, cellZ + 1000, 6), tz = cellZ * 6 + hashI(cellX + 1000, cellZ, 6);
     const c = landuse(tx, tz);
-    const density = c === LU.FOREST ? 0.6 : c === LU.WETLAND ? 0.35 : c === LU.CEMETERY ? 0.25 : c === LU.GRASS ? 0.035 : c === LU.STEPPE ? 0.006 : 0;
+    const density = c === LU.FOREST ? 0.05 : c === LU.WETLAND ? 0.02 : c === LU.CEMETERY ? 0.03 : c === LU.GRASS ? 0.002 : c === LU.STEPPE ? 0.0003 : 0;
     if (r > density) return null;
     for (const [ox, oz] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
       const q = column(tx + ox, tz + oz);
       if (q.b || q.road || q.site || q.water >= 0 || q.sand) return null;
     }
-    const q = column(tx, tz);
-    return { x: tx, z: tz, y: q.ground + 1, birch: hash(cellX + 7, cellZ + 3) < 0.45, h: 7 + hashI(cellX + 2, cellZ, 4) }; // crown clears a car and a walker
+    return { x: tx + 0.5, z: tz + 0.5, y: TOP, birch: hash(cellX + 7, cellZ + 3) < 0.4, h: 6.5 + hash(cellX + 2, cellZ) * 3 };
   }
 
-  function stampTree(t, set) {
-    const trunk = t.birch ? B.BIRCH : B.LOG, leaf = t.birch ? B.BIRCH_LEAVES : B.LEAVES;
-    const top = t.y + t.h;
-    const R = t.birch ? 2 : 3;
-    for (let y = top - R - 1; y <= top + 1; y++) {
-      const ry = y - top;
-      const rad = ry >= 1 ? 1 : ry === 0 ? R - 1 : R;
-      for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
-        if (Math.abs(dx) === rad && Math.abs(dz) === rad && hash(t.x + dx * 13 + y, t.z + dz * 5) < 0.6) continue;
-        set(t.x + dx, y, t.z + dz, leaf, true);
-      }
-    }
-    for (let y = t.y; y < top; y++) set(t.x, y, t.z, trunk);
-  }
-
-  // Surface flora for a plain ground column.
-  function floraAt(x, z, surf, lu_) {
+  // Sparse low plants, so the flat ground is not bare up close.
+  function floraAt(x, z, cls) {
     const r = hash(x + 91, z - 37);
-    if (surf === B.STEPPE) return r < 0.12 ? B.DRY_PLANT : r < 0.135 ? B.FLOWER_YELLOW : 0;
-    if (surf === B.GRASS) {
-      if (lu_ === LU.PITCH) return 0;
-      return r < 0.08 ? B.GRASS_PLANT : r < 0.09 ? B.FLOWER_BLUE : r < 0.1 ? B.FLOWER_WHITE : r < 0.105 ? B.FLOWER_YELLOW : 0;
-    }
-    if (surf === B.FOREST) return r < 0.14 ? B.GRASS_PLANT : r < 0.15 ? B.FLOWER_WHITE : 0;
+    if (cls === LU.STEPPE) return r < 0.012 ? B.DRY_PLANT : r < 0.014 ? B.FLOWER_YELLOW : 0;
+    if (cls === LU.GRASS || cls === LU.FOREST) return r < 0.016 ? B.GRASS_PLANT : r < 0.018 ? B.FLOWER_BLUE : r < 0.02 ? B.FLOWER_WHITE : 0;
     return 0;
   }
 
@@ -377,57 +281,45 @@
   const CS = 32, VS = 34; // volume has a 1-block margin on each side, so meshes need no neighbours
   function generateVolume(cx, cz) {
     const wx0 = cx * CS - 1, wz0 = cz * CS - 1;
-    const cols = new Array(VS * VS);
-    let minG = 1e9, maxG = -1e9;
-    for (let k = 0; k < VS; k++) for (let i = 0; i < VS; i++) {
-      const c = column(wx0 + i, wz0 + k);
-      const copy = { ground: c.ground, surf: c.surf, water: c.water, deck: c.deck, b: c.b, road: c.road, site: c.site, cls: c.luClass };
-      cols[i + k * VS] = copy;
-      if (copy.ground < minG) minG = copy.ground;
-      let t = copy.ground;
-      if (copy.water > t) t = copy.water;
-      if (copy.deck > t) t = copy.deck;
-      if (copy.b && copy.b.top > t) t = copy.b.top;
-      if (t > maxG) maxG = t;
-    }
-    const cell = lookup(wx0 + 2, wz0 + 2);
-    cell.sites.forEach((s) => { if (s.top > maxG) maxG = s.top; });
-    const minY = minG - 2, maxY = maxG + 14, H = maxY - minY + 1;
-    const stride = VS * VS;
+    const minY = GROUND_Y - 1;
+    let maxY = GROUND_Y + 6;
+    const near = sites.filter((s) => s.stamp && s.x1 >= wx0 && s.x0 <= wx0 + VS && s.z1 >= wz0 && s.z0 <= wz0 + VS);
+    near.forEach((s) => { if (s.top > maxY) maxY = s.top; });
+    const interiors = lookup(wx0 + 17, wz0 + 17).blds.filter((b) => b.interior);
+    interiors.forEach((b) => { if (b.top + 1 > maxY) maxY = b.top + 1; });
+    const H = maxY - minY + 1, stride = VS * VS;
     const vol = new Uint8Array(stride * H);
-    const set = (x, y, z, id, onlyIfEmpty) => {
+    const set = (x, y, z, id) => {
       const i = x - wx0, k = z - wz0, j = y - minY;
       if (i < 0 || k < 0 || i >= VS || k >= VS || j < 0 || j >= H) return;
-      const idx = i + k * VS + j * stride;
-      if (onlyIfEmpty && vol[idx] && vol[idx] !== B.GRASS_PLANT && vol[idx] !== B.DRY_PLANT) return;
-      vol[idx] = id;
+      vol[i + k * VS + j * stride] = id;
     };
     for (let k = 0; k < VS; k++) for (let i = 0; i < VS; i++) {
-      const c = cols[i + k * VS];
-      const x = wx0 + i, z = wz0 + k, g = c.ground, base = i + k * VS;
-      const stoneTop = g - 3;
-      for (let y = minY; y < g; y++) vol[base + (y - minY) * stride] = y <= stoneTop ? B.STONE : B.DIRT;
-      vol[base + (g - minY) * stride] = c.surf;
-      if (c.water >= 0) for (let y = g + 1; y <= c.water; y++) vol[base + (y - minY) * stride] = B.WATER;
-      if (c.deck >= 0) { vol[base + (c.deck - minY) * stride] = B.PLANKS; }
-      if (c.b) buildingStack(c.b, x, z, set);
-      else if (!c.road && !c.site && c.water < 0) {
-        const f = floraAt(x, z, c.surf, c.cls);
-        if (f) vol[base + (g + 1 - minY) * stride] = f;
+      const x = wx0 + i, z = wz0 + k, base = i + k * VS;
+      const c = column(x, z);
+      vol[base] = B.GROUND; vol[base + stride] = B.GROUND;
+      if (c.b) {
+        const b = c.b;
+        if (!(b.interior && b.interior(x, z, set))) for (let y = TOP; y < TOP + 4; y++) vol[base + (y - minY) * stride] = B.INVIS;
+      } else if (c.water >= 0) {
+        for (let y = TOP; y < TOP + 3; y++) vol[base + (y - minY) * stride] = B.WATER_WALL;
+      } else if (!c.road && !c.site && !c.sand) {
+        const f = floraAt(x, z, c.luClass);
+        if (f) vol[base + 2 * stride] = f;
       }
     }
-    // Trees from this cell and neighbours whose crowns can overlap.
-    const tc0x = Math.floor((wx0 - 4) / 6), tc1x = Math.floor((wx0 + VS + 4) / 6);
-    const tc0z = Math.floor((wz0 - 4) / 6), tc1z = Math.floor((wz0 + VS + 4) / 6);
-    for (let tz = tc0z; tz <= tc1z; tz++) for (let tx = tc0x; tx <= tc1x; tx++) {
+    // Trees whose trunks stand in this chunk (crowns are meshes and never block anyone).
+    const trees = [];
+    const inner = (t) => t.x >= cx * CS && t.x < (cx + 1) * CS && t.z >= cz * CS && t.z < (cz + 1) * CS;
+    for (let tz = Math.floor((cz * CS) / 6) - 1; tz <= Math.floor(((cz + 1) * CS) / 6); tz++) for (let tx = Math.floor((cx * CS) / 6) - 1; tx <= Math.floor(((cx + 1) * CS) / 6); tx++) {
       const t = treeAt(tx, tz);
-      if (t) stampTree(t, set);
+      if (t && inner(t)) trees.push(t);
     }
-    // Hand-built sites overwrite everything.
-    for (const s of sites) {
-      if (s.stamp && s.x1 >= wx0 && s.x0 <= wx0 + VS && s.z1 >= wz0 && s.z0 <= wz0 + VS) s.stamp(set);
-    }
-    return { vol, minY, H, wx0, wz0 };
+    const extra = byChunk.get(ikey(cx, cz));
+    if (extra) extra.trees.forEach((t) => trees.push(t));
+    for (const s of near) s.stamp(set);
+    for (const t of trees) for (let y = TOP; y < TOP + 3; y++) set(Math.floor(t.x), y, Math.floor(t.z), B.INVIS);
+    return { vol, minY, H, wx0, wz0, trees, blds: extra ? extra.blds : [], roofs: extra ? extra.roofs : [] };
   }
 
   // English street names. The data keeps the Russian originals from OpenStreetMap; the screen shows these.
@@ -461,5 +353,8 @@
     return enName(name);
   }
 
-  G.world = { D, bounds, CS, VS, column, generateVolume, elevation, elevationFar, landuse, LU, roads, buildings, buildingAt, inB, addSite, sites, hash, hashI, dem, demFar, roadNameAt, enName, pointInPoly, lookup, segDist };
+  G.world = {
+    D, bounds, ABROAD, CS, VS, TOP, GROUND_Y, column, generateVolume, treeAt, landuse, LU, roads, buildings, buildingAt, inB, addSite, addRoof, addFlat, addFarBox, addTree, flats, farBoxes, sites,
+    hash, hashI, roadNameAt, enName, pointInPoly, lookup, segDist, elevation: () => GROUND_Y + 0.5,
+  };
 })();

@@ -27,8 +27,8 @@ Only needed for a more polished look. Use files you made yourself or with a lice
 
 | Type | What | Format |
 | --- | --- | --- |
-| Textures | Grass, road, wall, roof and other block faces | PNG, 16×16 pixels |
-| 3D models | Car, chicken, cat, people, later a plane | `.glb`, low-poly, under about 5,000 triangles each |
+| Textures | Grass, road, wall, roof and other surfaces, seamless | PNG, 64×64 or larger |
+| 3D models | Car, taxi, plane, chicken, cat, people | `.glb`, low-poly, under about 5,000 triangles each |
 | Animal sounds | Chicken clucks, cat meows and purring | `.ogg` or `.mp3` |
 | Vehicle sounds | Engine idle and revving, door, horn | `.ogg` or `.mp3`, loopable engine |
 | Ambience | Wind, birds, village at night, footsteps by surface | `.ogg` or `.mp3` |
@@ -36,6 +36,6 @@ Only needed for a more polished look. Use files you made yourself or with a lice
 
 ## Maps
 
-Nothing is needed for Akyar: OpenStreetMap and elevation data are already built in. OpenStreetMap has footprints but little detail on house shapes, so your photos fill that gap.
+Nothing is needed for Akyar: the OpenStreetMap data is already built in, and the ground is deliberately flat. OpenStreetMap has footprints but little detail on house shapes, so your photos fill that gap.
 
-For the future flights, send the list of countries or cities you want. Each one needs its own map download and a landing location. Corrections to the map can also be made on openstreetmap.org and baked into the game later.
+Flights use one shared airport, street and hotel for every country, so they need no maps. The country list is in `js/game.js`. Giving a country its real map later would need its own map download. Corrections to Akyar's map can be made on openstreetmap.org and baked into the game.

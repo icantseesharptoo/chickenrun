@@ -60,7 +60,7 @@
     pad.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       try { pad.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
-      const walkSide = e.clientX < innerWidth * 0.42 && !api.inCar() && stickId === null;
+      const walkSide = e.clientX < innerWidth * 0.42 && !api.noWalk() && stickId === null;
       pointers.set(e.pointerId, { role: walkSide ? 'stick' : 'look', ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY });
       if (walkSide) { stickId = e.pointerId; placeStick(e.clientX, e.clientY); }
     });
@@ -148,14 +148,21 @@
     };
   }
 
-  function update(prompt) {
+  let cutShown = false;
+  function update(prompt, inCut) {
+    if (inCut !== cutShown) {
+      cutShown = inCut;
+      document.body.classList.toggle('in-cut', inCut);
+      btnUse.textContent = inCut ? 'SKIP' : 'USE';
+      if (inCut) G.touch.releaseAll();
+    }
     const inCar = api.inCar();
     if (inCar !== inCarShown) {
       inCarShown = inCar;
       document.body.classList.toggle('in-car', inCar);
       G.touch.releaseAll();
     }
-    btnUse.classList.toggle('ready', !!prompt);
+    btnUse.classList.toggle('ready', !!prompt || inCut);
     btnRun.classList.toggle('active', !!api.keys.ShiftLeft);
   }
 

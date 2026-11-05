@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bakes raw OpenStreetMap + Terrarium elevation data into data/akyar.js.
+"""Bakes raw OpenStreetMap data into data/akyar.js. The game world is deliberately flat.
 
 Usage (run from the project root):
     python -I tools/bake_map.py data_src data/akyar.js
@@ -8,11 +8,11 @@ Usage (run from the project root):
 
 --home-street puts the homestead on a named street, away from the town centre (default: Akmulla St).
 --home-lat / --home-lon moves it to (or near) a real spot instead.
+The airport is invented: it is placed on the most open land a few hundred metres from the homestead.
 
 Map data (c) OpenStreetMap contributors, ODbL 1.0.
-Elevation: Mapzen Terrain Tiles on AWS Open Data (includes SRTM, NASA).
 """
-import argparse, array, base64, glob, json, math, os, re, struct, sys, zlib
+import argparse, json, math, os, sys
 import xml.etree.ElementTree as ET
 
 LAT0, LON0 = 51.8725, 58.2325
@@ -30,124 +30,6 @@ BOUNDS = dict(
     x0=project(LAT0, BBOX['minlon'])[0], x1=project(LAT0, BBOX['maxlon'])[0],
     z0=project(BBOX['maxlat'], LON0)[1], z1=project(BBOX['minlat'], LON0)[1],
 )
-
-
-# ---------- minimal PNG decoder (stdlib only) ----------
-def read_png(path):
-    data = open(path, 'rb').read()
-    if data[:8] != b'\x89PNG\r\n\x1a\n':
-        raise ValueError('not a png: ' + path)
-    pos, idat, palette = 8, [], None
-    while pos < len(data):
-        n, typ = struct.unpack('>I4s', data[pos:pos + 8])
-        body = data[pos + 8:pos + 8 + n]
-        pos += 12 + n
-        if typ == b'IHDR':
-            w, h, depth, ctype = struct.unpack('>IIBB', body[:10])
-        elif typ == b'PLTE':
-            palette = body
-        elif typ == b'IDAT':
-            idat.append(body)
-    if depth != 8 or ctype not in (2, 3, 6):
-        raise ValueError(f'unsupported png {depth}/{ctype}')
-    channels = {2: 3, 3: 1, 6: 4}[ctype]
-    raw = zlib.decompress(b''.join(idat))
-    stride = w * channels
-    out, prev, p = [], bytearray(stride), 0
-    for _ in range(h):
-        f = raw[p]
-        line = bytearray(raw[p + 1:p + 1 + stride])
-        p += stride + 1
-        for i in range(stride):
-            a = line[i - channels] if i >= channels else 0
-            b = prev[i]
-            c = prev[i - channels] if i >= channels else 0
-            if f == 1:
-                line[i] = (line[i] + a) & 255
-            elif f == 2:
-                line[i] = (line[i] + b) & 255
-            elif f == 3:
-                line[i] = (line[i] + (a + b) // 2) & 255
-            elif f == 4:
-                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
-                pr = a if pa <= pb and pa <= pc else (b if pb <= pc else c)
-                line[i] = (line[i] + pr) & 255
-        row = []
-        for i in range(w):
-            if ctype == 3:
-                k = line[i] * 3
-                r, g, bb = palette[k], palette[k + 1], palette[k + 2]
-            else:
-                r, g, bb = line[i * channels:i * channels + 3]
-            row.append(r * 256 + g + bb / 256 - 32768)
-        out.append(row)
-        prev = line
-    return w, h, out
-
-
-class Dem:
-    def __init__(self, src):
-        tiles = {}
-        for f in glob.glob(os.path.join(src, 't_*.png')):
-            m = re.search(r't_(\d+)_(\d+)_(\d+)\.png$', f)
-            self.z = int(m.group(1))
-            tiles[(int(m.group(2)), int(m.group(3)))] = read_png(f)[2]
-        self.tiles = tiles
-        xs = [k[0] for k in tiles]
-        ys = [k[1] for k in tiles]
-        self.lon_w = self.px_lon(min(xs) * 256)
-        self.lon_e = self.px_lon((max(xs) + 1) * 256)
-        self.lat_n = self.px_lat(min(ys) * 256)
-        self.lat_s = self.px_lat((max(ys) + 1) * 256)
-
-    def px_lon(self, px):
-        return px / (256 * 2 ** self.z) * 360 - 180
-
-    def px_lat(self, py):
-        n = math.pi * (1 - 2 * py / (256 * 2 ** self.z))
-        return math.degrees(math.atan(math.sinh(n)))
-
-    def raw(self, px, py):
-        t = self.tiles.get((px // 256, py // 256))
-        return t[py % 256][px % 256] if t else None
-
-    def at(self, lat, lon):
-        n = 256 * 2 ** self.z
-        fx = (lon + 180) / 360 * n - 0.5
-        r = math.radians(lat)
-        fy = (1 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2 * n - 0.5
-        ix, iy = math.floor(fx), math.floor(fy)
-        tx, ty = fx - ix, fy - iy
-        v = [self.raw(ix, iy), self.raw(ix + 1, iy), self.raw(ix, iy + 1), self.raw(ix + 1, iy + 1)]
-        if any(a is None for a in v):
-            v = [a if a is not None else next(b for b in v if b is not None) for a in v]
-        return (v[0] * (1 - tx) + v[1] * tx) * (1 - ty) + (v[2] * (1 - tx) + v[3] * tx) * ty
-
-    def at_xz(self, x, z):
-        return self.at(LAT0 - z / MZ, LON0 + x / MX)
-
-
-def blur(grid, w, h, passes=1):
-    for _ in range(passes):
-        for horizontal in (True, False):
-            nxt = list(grid)
-            for y in range(h):
-                for x in range(w):
-                    i = x + y * w
-                    if horizontal:
-                        a, b = grid[x - 1 + y * w] if x else grid[i], grid[x + 1 + y * w] if x < w - 1 else grid[i]
-                    else:
-                        a, b = grid[x + (y - 1) * w] if y else grid[i], grid[x + (y + 1) * w] if y < h - 1 else grid[i]
-                    nxt[i] = (a + 2 * grid[i] + b) / 4
-            grid = nxt
-    return grid
-
-
-def b64_i16(values):
-    arr = array.array('h', [max(-32768, min(32767, int(round(v * 10)))) for v in values])
-    if sys.byteorder != 'little':
-        arr.byteswap()
-    return base64.b64encode(arr.tobytes()).decode()
 
 
 def area(pts):
@@ -190,7 +72,6 @@ def main():
     ap.add_argument('--home-street', default='улица Акмуллы')
     args = ap.parse_args()
 
-    dem = Dem(args.src)
     root = ET.parse(os.path.join(args.src, 'map.osm')).getroot()
     nodes = {n.get('id'): (float(n.get('lat')), float(n.get('lon'))) for n in root.findall('node')}
 
@@ -253,31 +134,6 @@ def main():
             x, z = project(float(el.get('lat')), float(el.get('lon')))
             pois.append(dict(n=tags['name'], k=tags.get('amenity') or tags.get('shop') or 'office', x=round(x, 1), z=round(z, 1)))
 
-    # ---------- elevation ----------
-    x0, z0 = math.floor(BOUNDS['x0']) - 96, math.floor(BOUNDS['z0']) - 96
-    x1, z1 = math.ceil(BOUNDS['x1']) + 96, math.ceil(BOUNDS['z1']) + 96
-    step = 16
-    w, h = (x1 - x0) // step + 2, (z1 - z0) // step + 2
-    near = [dem.at_xz(x0 + i * step, z0 + j * step) for j in range(h) for i in range(w)]
-    near = blur(near, w, h, 2)
-    min_h = min(near)
-    far_x0, far_x1 = project(LAT0, dem.lon_w)[0] + 40, project(LAT0, dem.lon_e)[0] - 40
-    far_z0, far_z1 = project(dem.lat_n, LON0)[1] + 40, project(dem.lat_s, LON0)[1] - 40
-    fstep = 64
-    fw, fh = int((far_x1 - far_x0) // fstep) + 1, int((far_z1 - far_z0) // fstep) + 1
-    far = [dem.at_xz(far_x0 + i * fstep, far_z0 + j * fstep) for j in range(fh) for i in range(fw)]
-    far = blur(far, fw, fh, 1)
-    base = min_h - 24  # world Y 24 = lowest point of the town area
-
-    def elev(x, z):
-        fx = max(0, min(w - 1.001, (x - x0) / step))
-        fz = max(0, min(h - 1.001, (z - z0) / step))
-        ix, iz = int(fx), int(fz)
-        tx, tz = fx - ix, fz - iz
-        a = near[ix + iz * w] * (1 - tx) + near[ix + 1 + iz * w] * tx
-        b = near[ix + (iz + 1) * w] * (1 - tx) + near[ix + 1 + (iz + 1) * w] * tx
-        return a * (1 - tz) + b * tz - base
-
     # ---------- landuse raster, 8 m cells ----------
     lstep = 8
     lx0, lz0 = math.floor(BOUNDS['x0']), math.floor(BOUNDS['z0'])
@@ -304,20 +160,9 @@ def main():
         rle += [lgrid[i], n]
         i += n
 
-    # ---------- rivers + ponds: water surface level per vertex ----------
-    out_rivers = []
-    for r in rivers:
-        if len(r['p']) < 2:
-            continue
-        lv, cur = [], 1e9
-        for x, z in r['p']:
-            cur = min(cur, elev(x, z) - 1)  # OSM ways run downstream: level only falls
-            lv.append(round(cur, 1))
-        out_rivers.append(dict(n=r['n'], w=14 if r['t'] == 'river' else 4, l=lv, p=flat(r['p'])))
-    out_waters = []
-    for wt in waters:
-        lvl = min(elev(x, z) for x, z in wt['p']) - 1
-        out_waters.append(dict(n=wt['n'], l=math.floor(lvl), p=flat(wt['p'])))
+    # ---------- rivers + ponds ----------
+    out_rivers = [dict(n=r['n'], w=14 if r['t'] == 'river' else 4, p=flat(r['p'])) for r in rivers if len(r['p']) >= 2]
+    out_waters = [dict(n=wt['n'], p=flat(wt['p'])) for wt in waters]
 
     # ---------- buildings: classify ----------
     for b in blds:
@@ -362,8 +207,21 @@ def main():
     # The job is in the town centre: the closest unnamed commercial building, not next door to the shop.
     inds = [b for b in blds if b['k'] in ('retail', 'big', 'industrial') and not b['n'] and b is not shop and 180 <= b['area'] <= 1500
             and math.dist(centroid(b['p']), centroid(shop['p'])) >= 120 and dist_to_any_road(*centroid(b['p']), 80) < 70]
-    work = min(inds, key=lambda b: math.dist(centroid(b['p']), town))
+
+    def skew(b):
+        # Degrees between the building's longest wall and the nearest map axis.
+        p = b['p']
+        e = max(((p[(i + 1) % len(p)][0] - p[i][0], p[(i + 1) % len(p)][1] - p[i][1]) for i in range(len(p))), key=lambda v: math.hypot(*v))
+        a = abs(math.degrees(math.atan2(e[1], e[0]))) % 90
+        return min(a, 90 - a)
+
+    straight = [b for b in inds if skew(b) < 8] or inds
+    work = min(straight, key=lambda b: math.dist(centroid(b['p']), town))
     shop['k'], work['k'] = 'shop', 'work'
+    print(f"skew: shop {skew(shop):.0f} deg, depot {skew(work):.0f} deg")
+    for b in (shop, work):
+        xs, zs = [p[0] for p in b['p']], [p[1] for p in b['p']]
+        b['p'] = [(min(xs), min(zs)), (max(xs), min(zs)), (max(xs), max(zs)), (min(xs), max(zs))]
 
     # ---------- homestead: free-ish square lot beside a riverside residential street ----------
     all_segs = []
@@ -421,8 +279,7 @@ def main():
                 rd = min((seg_dist(cx, cz, a, b) for a, b in river_segs), default=1e9)
                 if rd < half + 26:
                     continue
-                corners = [elev(cx + a * half, cz + c * half) for a in (-1, 1) for c in (-1, 1)]
-                score = overlap * 10 + (max(corners) - min(corners)) * 60 + rd * 0.05 + town_penalty + (0 if street_segs else math.hypot(cx - tx, cz - tz) * 0.3)
+                score = overlap * 10 + rd * 0.05 + town_penalty + (0 if street_segs else math.hypot(cx - tx, cz - tz) * 0.3)
                 if score < best_score:
                     best_score, best = score, (cx, cz)
     if best is None:
@@ -460,6 +317,92 @@ def main():
     gx, gz = gates[gate]
     roads.append(dict(t='service', n='', s='dirt', p=[(gx, gz), drive_end]))
 
+    # ---------- airport: invented, on the most open land a few hundred metres from home ----------
+    AL, AW, MIN_D, MAX_D, CELL = 380, 96, 150, 500, 100
+    grid = {}
+
+    def grid_add(kind, x, z, weight):
+        grid.setdefault((int(x // CELL), int(z // CELL)), []).append((kind, x, z, weight))
+
+    for r in roads:
+        p = r['p']
+        big = r['t'] in ('secondary', 'tertiary', 'unclassified', 'residential')
+        for i in range(len(p) - 1):
+            n = max(1, int(math.dist(p[i], p[i + 1]) // 8))
+            for k in range(n + 1):
+                grid_add('road', p[i][0] + (p[i + 1][0] - p[i][0]) * k / n, p[i][1] + (p[i + 1][1] - p[i][1]) * k / n, 4000 if big else 300)
+    for a, b in river_segs:
+        n = max(1, int(math.dist(a, b) // 8))
+        for k in range(n + 1):
+            grid_add('water', a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, 1e8)
+    for wt in waters:
+        for p in wt['p']:
+            grid_add('water', p[0], p[1], 1e8)
+    for b in blds:
+        c = centroid(b['p'])
+        grid_add('building', c[0], c[1], 1e8 if b['k'] in ('shop', 'work') or b['n'] else b['area'] * 12)
+
+    def rect_score(x0, z0, x1, z1):
+        total = 0
+        for gx in range(int((x0 - 30) // CELL), int((x1 + 30) // CELL) + 1):
+            for gz in range(int((z0 - 30) // CELL), int((z1 + 30) // CELL) + 1):
+                for kind, x, z, w_ in grid.get((gx, gz), ()):
+                    m = 14 if kind == 'building' else 2
+                    if x0 - m <= x <= x1 + m and z0 - m <= z <= z1 + m:
+                        total += w_
+        return total
+
+    ap_best, ap_score = None, 1e18
+    for x0 in range(int(x_0 - MAX_D - AL), int(x_1 + MAX_D), 20):
+        for z0 in range(int(z_0 - MAX_D - AL), int(z_1 + MAX_D), 20):
+            for w_, d_ in ((AL, AW), (AW, AL)):
+                x1, z1 = x0 + w_, z0 + d_
+                if not (in_bounds(x0, z0, -40) and in_bounds(x1, z1, -40)):
+                    continue
+                gap = math.hypot(max(x0 - x_1, x_0 - x1, 0), max(z0 - z_1, z_0 - z1, 0))
+                if gap < MIN_D or gap > MAX_D:
+                    continue
+                sc = rect_score(x0, z0, x1, z1) + gap * 2
+                if sc < ap_score:
+                    ap_score, ap_best = sc, (x0, z0, x1, z1)
+    if ap_best is None:
+        sys.exit('could not find an airport site')
+    ax0, az0, ax1, az1 = ap_best
+    ap_gap = math.hypot(max(ax0 - x_1, x_0 - ax1, 0), max(az0 - z_1, z_0 - az1, 0))
+    blds, ap_removed = [b for b in blds if not (ax0 - 14 <= centroid(b['p'])[0] <= ax1 + 14 and az0 - 14 <= centroid(b['p'])[1] <= az1 + 14)], [b for b in blds if ax0 - 14 <= centroid(b['p'])[0] <= ax1 + 14 and az0 - 14 <= centroid(b['p'])[1] <= az1 + 14]
+
+    # Roads that ran across the site stop at its edge.
+    inside = lambda q: ax0 - 2 <= q[0] <= ax1 + 2 and az0 - 2 <= q[1] <= az1 + 2
+    new_roads = []
+    for r in roads:
+        run = []
+        for q in r['p']:
+            if inside(q):
+                if len(run) >= 2:
+                    new_roads.append(dict(r, p=run))
+                run = []
+            else:
+                run.append(q)
+        if len(run) >= 2:
+            new_roads.append(dict(r, p=run))
+    roads = new_roads
+
+    # The terminal faces the long side nearest a proper road; a short access road links them.
+    if AL == ax1 - ax0:
+        sides = dict(n=((ax0 + ax1) / 2, az0), s=((ax0 + ax1) / 2, az1))
+    else:
+        sides = dict(w=(ax0, (az0 + az1) / 2), e=(ax1, (az0 + az1) / 2))
+    good = [s_ for s_ in all_segs if s_[3]['t'] in ('secondary', 'tertiary', 'unclassified', 'residential', 'service') and not (inside(s_[0]) or inside(s_[1]))]
+    ap_side, ap_end, ap_d = None, None, 1e9
+    for side, (gx, gz) in sides.items():
+        for s_ in good:
+            q = closest_on(s_, gx, gz)
+            outward = {'n': q[1] < gz, 's': q[1] > gz, 'w': q[0] < gx, 'e': q[0] > gx}[side]
+            if outward and math.dist(q, (gx, gz)) < ap_d:
+                ap_side, ap_end, ap_d = side, q, math.dist(q, (gx, gz))
+    gx, gz = sides[ap_side]
+    roads.append(dict(t='tertiary', n='Airport Road', s='asphalt', p=[(gx, gz), ap_end]))
+
     # ---------- bridges: roads crossing rivers (for key placement and the map) ----------
     bridges = []
     for r in roads:
@@ -491,10 +434,8 @@ def main():
         out_roads.append([r['t'], names, surface, flat(r['p'])])
 
     data = dict(
-        meta=dict(lat0=LAT0, lon0=LON0, bounds={k: round(v) for k, v in BOUNDS.items()}, baseElevation=round(base, 1),
-                  attribution='Map data © OpenStreetMap contributors (ODbL). Elevation: Mapzen Terrain Tiles / SRTM.'),
-        dem=dict(x0=x0, z0=z0, step=step, w=w, h=h, b64=b64_i16([v - base for v in near])),
-        demFar=dict(x0=round(far_x0), z0=round(far_z0), step=fstep, w=fw, h=fh, b64=b64_i16([v - base for v in far])),
+        meta=dict(lat0=LAT0, lon0=LON0, bounds={k: round(v) for k, v in BOUNDS.items()},
+                  attribution='Map data © OpenStreetMap contributors (ODbL).'),
         landuse=dict(x0=lx0, z0=lz0, step=lstep, w=lw, h=lh, rle=rle),
         roadNames=list(road_names.keys()),
         roads=out_roads,
@@ -505,19 +446,21 @@ def main():
         named=named,
         bridges=bridges,
         home=dict(x=x_0, z=z_0, size=SITE, gate=gate, street=road_name),
+        airport=dict(x0=ax0, z0=az0, x1=ax1, z1=az1, side=ap_side),
     )
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     with open(args.out, 'w', encoding='utf-8') as f:
         f.write('// Generated by tools/bake_map.py. Map data (c) OpenStreetMap contributors, ODbL 1.0.\n')
         f.write('window.AKYAR=' + json.dumps(data, ensure_ascii=False, separators=(',', ':')) + ';\n')
 
-    print(f'bounds {data["meta"]["bounds"]}  elevation {min_h:.0f}..{max(near):.0f} m (base {base:.0f})')
+    print(f'bounds {data["meta"]["bounds"]}')
+    print(f'airport {data["airport"]} gap from home {ap_gap:.0f} m, access road {ap_d:.0f} m, score {ap_score:.0f}, removed {len(ap_removed)} buildings {[round(b["area"]) for b in ap_removed]}')
     print(f'buildings {len(blds)} (removed {len(removed)} for homestead: {[round(b["area"]) for b in removed]})  roads {len(out_roads)}  rivers {len(out_rivers)} ponds {len(out_waters)}  bridges {len(bridges)}')
     kinds = {}
     for b in blds:
         kinds[b['k']] = kinds.get(b['k'], 0) + 1
     print('kinds', kinds)
-    print('dem', w, h, 'far', fw, fh, 'landuse', lw, lh, 'rle', len(rle))
+    print('landuse', lw, lh, 'rle', len(rle))
     print('home', data['home'], 'score', round(best_score, 1))
     print('shop', shop['n'], round(shop['area']), [round(v) for v in centroid(shop['p'])])
     print('work', work['n'], round(work['area']), [round(v) for v in centroid(work['p'])])
