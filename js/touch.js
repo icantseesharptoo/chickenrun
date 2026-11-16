@@ -102,6 +102,7 @@
     // Always there
     makeButton(hud, 'MAP', 't-top t-map', 'tap', 'KeyM');
     makeButton(hud, 'SOUND', 't-top t-sound', 'tap', 'KeyN');
+    makeButton(hud, 'CAM', 't-top t-cam t-walk', 'tap', 'KeyV');
     makeButton(hud, '❚❚', 't-top t-pause', () => api.pause());
 
     const rot = document.createElement('div');

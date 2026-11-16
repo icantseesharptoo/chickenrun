@@ -29,11 +29,19 @@
 
   G.devShots = {
     bedroom() { stand(SI().home.spawn); settle(); },
-    kitchen() { const h = SI().home; openDoor('home'); stand(h.pos(11.5, 0, 20.5), h.pos(7.5, 1.3, 19)); settle(); },
-    yard() { const h = SI().home; stand(h.pos(17, 0, 13), h.pos(24, 0.5, 11)); settle(); },
-    yard2() { const h = SI().home; openDoor('home'); stand(h.pos(21, 0, 3), h.pos(10, 2, 19)); settle(); },
+    kitchen() { const h = SI().home; G.game.setView('first'); stand(h.pos(5.5, 0, 15.5), h.cupboard); settle(); },
+    living() { const h = SI().home; G.game.setView('first'); stand(h.pos(5.4, 0, 20.4), h.pos(2.2, 0.6, 22.2)); settle(); },
+    hills() { const h = SI().home; G.game.setCamDist(5); stand(h.pos(19.5, 0, -6), h.pos(19.5, 60, -1200)); settle(); },
+    hillsN() { const g = G.game; g.teleport(0, W_TOP(), -2900); g.setYawPitch(0, 0.04); settle(); },
+    corridor() { const h = SI().home; stand(h.pos(7.5, 0, 6), h.pos(7.5, 1.5, 20)); settle(); },
+    yard() { const h = SI().home; stand(h.pos(19.5, 0, 21), h.pos(19.5, 1, 32)); settle(); },
+    coop() { const h = SI().home; stand(h.pos(13, 0, 38), h.pos(20, 0.6, 42)); settle(); },
+    yard2() { const h = SI().home; stand(h.pos(19.5, 0, -7), h.pos(8, 2.5, 12)); settle(); },
+    street() { const h = SI().home; G.game.setCamDist(7); stand(h.pos(30, 0, -6), h.pos(0, 1.5, -5)); settle(); },
     chickens() { const g = G.game; const a = g.hens[0]; const p = new THREE.Vector3(a.x + 2.2, G.sites.home.y, a.z + 1.2); stand(p, new THREE.Vector3(a.x, G.sites.home.y + 0.5, a.z)); settle(); },
-    shed() { const h = SI().home; openDoor('shed'); stand(h.pos(26.5, 0, 24.5), h.pos(25.5, 0.8, 28.5)); settle(); },
+    shed() { const h = SI().home; G.game.setView('first'); openDoor('shed'); stand(h.pos(19.5, 0, 29), h.chest); settle(); },
+    npc() { const g = G.game; for (let i = 0; i < 60; i++) g.tick(1 / 30); const n = g.npcs.find((q) => q.active); if (n) stand(new THREE.Vector3(n.x + 3, W_TOP(), n.z + 3), new THREE.Vector3(n.x, W_TOP() + 1.4, n.z)); settle(); },
+    mountains() { const h = SI().home; G.game.setCamDist(5); stand(h.pos(19.5, 0, -6), h.pos(19.5, 30, -900)); settle(); },
     street() { const h = SI().shop; const e = h.entrance; stand(tp(e.x, e.z), new THREE.Vector3(h.door.x, h.y + 2, h.door.z)); settle(); },
     shopin() { const s = SI().shop; openDoor('shop'); stand(new THREE.Vector3(s.door.x + 0.5 + s.door.dx * 1.5, s.y, s.door.z + 0.5 + s.door.dz * 1.5), s.counter); settle(); },
     work() { const s = SI().work; stand(tp(s.entrance.x, s.entrance.z), new THREE.Vector3(s.door.x, s.y + 2, s.door.z)); settle(); },
@@ -52,8 +60,8 @@
     taxi() { const g = G.game; g.S().abroad = { id: 'france', taxiAt: 'airport' }; g.applyPlace(); const t = g.taxiPose(); stand(new THREE.Vector3(t.x - 6, W_TOP(), t.z + 5), new THREE.Vector3(t.x, W_TOP() + 1, t.z)); settle(); },
     hotel() { const g = G.game; g.S().abroad = { id: 'italy', taxiAt: 'hotel' }; g.applyPlace(); const h = SI().hotel; stand(new THREE.Vector3(h.x - 8, W_TOP(), G.world.ABROAD.z0 - 17), new THREE.Vector3(h.x, W_TOP() + 4, h.signPos.z)); settle(); },
     hotelin() { const g = G.game; g.S().abroad = { id: 'italy', taxiAt: 'hotel', checkedIn: true }; g.applyPlace(); openDoor('hotel'); const h = SI().hotel; stand(new THREE.Vector3(h.x, W_TOP(), h.signPos.z + 2), h.reception); settle(); },
-    night() { const h = SI().home; stand(h.pos(21, 0, 3), h.pos(10, 2, 19)); settle(22); },
-    sunset() { const h = SI().home; stand(h.pos(21, 0, 3), h.pos(10, 2, 19)); settle(18); },
+    night() { const h = SI().home; stand(h.pos(19.5, 0, -7), h.pos(8, 2.5, 12)); settle(22); },
+    sunset() { const h = SI().home; stand(h.pos(19.5, 0, -7), h.pos(8, 2.5, 12)); settle(18); },
   };
 
   // ---------- scripted playthrough ----------
@@ -77,22 +85,22 @@
     check('quest 1 is grain', S.questIdx === 0);
 
     // Walk: front door blocks, then opens.
-    const inside = H.pos(10.5, 0, 19.5), doorOut = H.pos(10.5, 0, 15.5);
-    at(inside, H.pos(10.5, 1.6, 17.5));
+    const inside = H.pos(7.5, 0, 5.5), doorOut = H.pos(7.5, 0, 1.5), doorMid = H.pos(7.5, 1.6, 3.5);
+    at(inside, doorMid);
     check('door prompt shows', /Open door/.test(curLabel() || ''), curLabel());
     g.keys.KeyW = true; sim(1.5); clearKeys();
     check('closed door blocks walking', Math.hypot(P.x - doorOut.x, P.z - doorOut.z) > 1.5, `dist=${Math.hypot(P.x - doorOut.x, P.z - doorOut.z).toFixed(2)}`);
-    at(inside, H.pos(10.5, 1.6, 17.5));
+    at(inside, doorMid);
     g.interactNow(); sim(0.3);
     g.lookAt(doorOut.clone().setY(P.eye));
-    g.keys.KeyW = true; sim(1.2); clearKeys();
+    g.keys.KeyW = true; sim(0.8); clearKeys();
     check('open door lets you walk outside', Math.hypot(P.x - doorOut.x, P.z - doorOut.z) < 2.4, `dist=${Math.hypot(P.x - doorOut.x, P.z - doorOut.z).toFixed(2)}`);
 
     // Shed + grain
-    at(H.pos(26.5, 0, 18.5), H.pos(26.5, 1.6, 20.5));
+    at(H.pos(19.5, 0, 24.5), H.pos(19.5, 1.6, 26.5));
     check('shed door prompt', /Open door/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.3);
-    at(H.pos(24.5, 0, 23.5), H.sack);
+    at(H.pos(18.5, 0, 29.5), H.sack);
     check('sack prompt', /grain/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.1);
     check('got 6 grain', S.items.grain === 6, S.items.grain);
@@ -100,48 +108,62 @@
     // Chickens
     // Hens wander and cluster, so the prompt may pick a neighbour: keep going until all are fed.
     let fedOK = 0;
-    for (let tries = 0; tries < 40 && !g.hens.every((h) => h.fed); tries++) {
+    // Stand on a free cell beside the animal; if it is out of reach (say, inside the coop), wait for it to wander out.
+    const besideFree = (a) => {
+      for (const [ox, oz] of [[1.1, 0.4], [-1.1, 0.4], [0.4, 1.1], [0.4, -1.1], [1.1, 1.1], [-1.1, -1.1]]) {
+        const x = a.x + ox, z = a.z + oz;
+        if (!V.solidAt(Math.floor(x), H.y, Math.floor(z)) && !V.solidAt(Math.floor(x), H.y + 1, Math.floor(z))) return [x, z];
+      }
+      return null;
+    };
+    for (let tries = 0; tries < 60 && !g.hens.every((h) => h.fed); tries++) {
       const h = g.hens.find((a) => !a.fed);
-      const sx = h.x + 1, sz = h.z + 0.5;
-      g.teleport(V.solidAt(Math.floor(sx), H.y, Math.floor(sz)) ? h.x - 1 : sx, H.y, sz);
-      g.lookAt(h.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
-      g.lookAt(h.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
-      if (g.current() && /chicken/i.test(g.current().label())) { g.interactNow(); fedOK++; }
+      const spot = besideFree(h);
+      if (spot) {
+        g.teleport(spot[0], H.y, spot[1]);
+        g.lookAt(h.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
+        g.lookAt(h.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
+        if (g.current() && /chicken/i.test(g.current().label())) { g.interactNow(); fedOK++; continue; }
+      }
+      sim(0.8);
     }
     check('all 5 chickens fed', g.hens.every((h) => h.fed) && S.flags.hensDone, `fed via prompt ${fedOK}`);
     check('grain spent', S.items.grain === 1, S.items.grain);
 
     // Cats
-    at(H.pos(8.5, 0, 20.5), H.cupboard);
+    at(H.pos(5.5, 0, 16.5), H.cupboard);
     check('cupboard prompt', /cat food/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.1);
     check('3 cat food', S.items.catfood === 3, S.items.catfood);
     let catsOK = 0;
-    for (let tries = 0; tries < 40 && !g.cats.every((a) => a.fed); tries++) {
+    for (let tries = 0; tries < 60 && !g.cats.every((a) => a.fed); tries++) {
       const c = g.cats.find((a) => !a.fed);
-      const sx = c.x + 1, sz = c.z + 0.6;
-      g.teleport(V.solidAt(Math.floor(sx), H.y, Math.floor(sz)) ? c.x - 1 : sx, H.y, sz);
-      g.lookAt(c.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
-      g.lookAt(c.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
-      if (g.current() && /cat/i.test(g.current().label())) { g.interactNow(); catsOK++; }
+      const spot = besideFree(c);
+      if (spot) {
+        g.teleport(spot[0], H.y, spot[1]);
+        g.lookAt(c.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
+        g.lookAt(c.group.position.clone().setY(H.y + 0.4)); g.tick(dt);
+        if (g.current() && /cat/i.test(g.current().label())) { g.interactNow(); catsOK++; continue; }
+      }
+      sim(0.8);
     }
     check('all 3 cats fed', g.cats.every((c) => c.fed) && S.flags.catsDone, `via prompt ${catsOK}`);
 
     // Car key
-    at(H.pos(10.5, 0, 20.5), H.keyHook);
+    at(H.pos(5.5, 0, 15.5), H.keyHook);
     check('car key prompt', /car key/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.1);
     check('has car key', S.carKey);
 
     // Car: drive through the gate
-    at(H.pos(19.5, 0, 9), H.car.clone().setY(H.y + 1));
+    at(H.pos(16.5, 0, 9), H.car.clone().setY(H.y + 1));
     check('car prompt', /Get in/.test(curLabel() || ''), curLabel());
     g.interactNow();
     check('in car', S.inCar);
     const c0 = [S.cx, S.cz];
     g.keys.KeyW = true; sim(3); clearKeys();
     const moved = Math.hypot(S.cx - c0[0], S.cz - c0[1]);
-    check('car drives out of the yard through the gate', moved > 15, `moved ${moved.toFixed(1)} m, speed ${(g.car.speed * 3.6).toFixed(0)} km/h`);
+    check('car drives out of the yard through the gate', moved > 10, `moved ${moved.toFixed(1)} m, speed ${(g.car.speed * 3.6).toFixed(0)} km/h`);
     const out = !(S.cx > H.x0 && S.cx < H.x1 && S.cz > H.z0 && S.cz < H.z1);
     check('car is outside the fence', out, `${S.cx.toFixed(1)},${S.cz.toFixed(1)}`);
     g.keys.Space = true; sim(2); clearKeys();
@@ -240,10 +262,50 @@
       if (/old key/.test(curLabel() || '')) g.interactNow();
     }
     check('all keys collected', Object.keys(S.keys).length === 3);
-    at(H.pos(25.5, 0, 25.5), H.chest);
+    at(H.pos(19.5, 0, 30.5), H.chest);
     check('chest prompt', /Open the old chest/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.2);
     check('chest opened', S.flags.chestOpen);
+
+    // ---------- Akmulla 76, fences, villagers, camera, landscape ----------
+    check('home is the real house at Akmulla St 76', W.D.home.way === '777451118' && W.D.home.number === '76', JSON.stringify(W.D.home));
+    check('home address shows on screen at home', (() => { g.teleport(H.spawn.x, H.spawn.y, H.spawn.z); g.tick(dt); g.tick(0.2); return /Akmulla St 76/.test(document.querySelector('#street').textContent); })(), document.querySelector('#street').textContent);
+    check('private houses have fences', W.fences.length > 1500, W.fences.length + ' fence lines');
+    const fenceProbe = (() => {
+      for (const f of W.fences) {
+        if (f.force) continue;
+        for (let t = 1; t < f.len - 1; t += 1) {
+          if (!W.fenceAllowedAt(f, t)) continue;
+          const x = Math.floor(f.ax + f.dx * t), z = Math.floor(f.az + f.dz * t);
+          if (W.column(x, z).fence) return { x, z, solid: V.solidAt(x, W.TOP, z) && V.solidAt(x, W.TOP + 1, z) };
+        }
+      }
+      return null;
+    })();
+    check('fences block walking (2 m high)', fenceProbe && fenceProbe.solid, JSON.stringify(fenceProbe));
+    check('home lot is fenced with a gap at the gate', V.solidAt(Math.floor(H.pos(3.5, 0, 0.5).x), W.TOP, Math.floor(H.pos(3.5, 0, 0.5).z)) && !V.solidAt(Math.floor(H.gate.x + (H.pos(19.5, 0, 0.5).x - H.gate.x)), W.TOP, Math.floor(H.pos(19.5, 0, 0.5).z)));
+    g.teleport(H.gate.x - 4, W.TOP, H.gate.z);
+    for (let i = 0; i < 20; i++) g.tick(dt);
+    check('villagers walk about', g.npcs.filter((n) => n.active).length >= 3, g.npcs.filter((n) => n.active).length + ' active');
+    const n0 = g.npcs.filter((n) => n.active).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    if (n0) {
+      const before = [n0.x, n0.z];
+      for (let i = 0; i < 30; i++) g.tick(dt);
+      check('a villager moves', Math.hypot(n0.x - before[0], n0.z - before[1]) > 0.3 || n0.wait > 0, Math.hypot(n0.x - before[0], n0.z - before[1]).toFixed(2));
+      g.teleport(n0.x + 1.6, W.TOP, n0.z + 0.6); g.lookAt(new THREE.Vector3(n0.x, W.TOP + 1.5, n0.z)); g.tick(dt); g.lookAt(new THREE.Vector3(n0.x, W.TOP + 1.5, n0.z)); g.tick(dt);
+      check('you can talk to a villager', /Talk to/.test(curLabel() || ''), curLabel());
+    }
+    g.setView('third');
+    g.teleport(H.pos(19.5, 0, -5).x, W.TOP, H.pos(19.5, 0, -5).z); g.setYawPitch(0, -0.2); g.tick(dt);
+    const camP = g.camera.position, head = new THREE.Vector3(P.x, P.y + 1.55, P.z);
+    check('third-person camera sits behind the character', camP.distanceTo(head) > 3 && g.avatar.visible, camP.distanceTo(head).toFixed(2) + ' m');
+    g.teleport(H.spawn.x, H.spawn.y, H.spawn.z); g.setYawPitch(H.spawnYaw, 0); g.tick(dt);
+    const cp2 = g.camera.position;
+    check('third-person camera never ends up inside a wall indoors', !V.solidAt(Math.floor(cp2.x), Math.floor(cp2.y), Math.floor(cp2.z)), `${cp2.x.toFixed(1)},${cp2.y.toFixed(1)},${cp2.z.toFixed(1)}`);
+    check('landscape with hills is built', !!V.getBgScene() && window.AKYAR_TERRAIN && window.AKYAR_TERRAIN.w > 50);
+    const types = new Set();
+    for (let cz = -500; cz < 500; cz += 1) for (let cx = -400; cx < 400; cx += 3) { const t = W.treeAt(cx, cz); if (t) types.add(t.type); }
+    check('several realistic tree species', types.size >= 4, [...types].join(', '));
 
     // ---------- The world: flat, few trees ----------
     let flatBad = 0;
@@ -379,7 +441,7 @@
     const roadCount = W.roads.length, buildings = W.buildings.length;
     check('real map loaded', roadCount > 200 && buildings > 2000, `${roadCount} roads, ${buildings} buildings`);
     check('home gate fronts Akmulla Street', W.D.home.street === 'улица Акмуллы', JSON.stringify(W.D.home));
-    const gatePt = H.pos(17, 0, -2);
+    const gatePt = H.gate;
     check('street name at the gate reads in English', W.roadNameAt(gatePt.x, gatePt.z) === 'Akmulla St', W.roadNameAt(gatePt.x, gatePt.z));
     const centre = W.D.named.find((q) => q.n === 'Администрация');
     const workCentre = Math.hypot(work.entrance.x - centre.x, work.entrance.z - centre.z);
@@ -394,7 +456,7 @@
     g.tick(dt);
     check('no Cyrillic in the page text', !CYR.test(document.body.innerText || document.body.textContent), (document.body.innerText || '').match(/.{0,20}[А-Яа-яЁё].{0,20}/));
 
-    const gate = H.pos(17, 0, -2);
+    const gate = H.gate;
 
     // Route along real road cells only, 1 m grid, 8-connected. Returns waypoints or null.
     function roadRoute(from, to) {

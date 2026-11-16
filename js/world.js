@@ -64,11 +64,11 @@
     for (let cz = cellOf(z0); cz <= cellOf(z1); cz++) for (let cx = cellOf(x0); cx <= cellOf(x1); cx++) {
       const k = ikey(cx, cz);
       let e = index.get(k);
-      if (!e) index.set(k, (e = { roads: [], blds: [], rivers: [], waters: [], sites: [] }));
+      if (!e) index.set(k, (e = { roads: [], blds: [], rivers: [], waters: [], sites: [], fences: [] }));
       e[kind].push(item);
     }
   }
-  const EMPTY = { roads: [], blds: [], rivers: [], waters: [], sites: [] };
+  const EMPTY = { roads: [], blds: [], rivers: [], waters: [], sites: [], fences: [] };
   const lookup = (x, z) => index.get(ikey(cellOf(x), cellOf(z))) || EMPTY;
 
   function pointInPoly(p, x, z) {
@@ -202,7 +202,82 @@
   const addRoof = (o) => chunkList((o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2, 'roofs').push(o);
   const addFlat = (o) => flats.push(o);
   const addFarBox = (o) => farBoxes.push(o);
-  function addTree(x, z, birch, h) { chunkList(x, z, 'trees').push({ x, z, y: TOP, birch, h, fixed: true }); }
+  function addTree(x, z, type, h) { chunkList(x, z, 'trees').push({ x, z, y: TOP, type, h, fixed: true }); }
+
+  // ---------- metal fences: private house plots get a 2 m corrugated fence with a car gate ----------
+  const fences = [];
+  function addFence(f) {
+    f.len = Math.hypot(f.bx - f.ax, f.bz - f.az);
+    if (f.len < 0.5) return;
+    f.dx = (f.bx - f.ax) / f.len; f.dz = (f.bz - f.az) / f.len;
+    f.gaps = f.gaps || [];
+    fences.push(f);
+    addToIndex('fences', f, Math.min(f.ax, f.bx) - 1, Math.min(f.az, f.bz) - 1, Math.max(f.ax, f.bx) + 1, Math.max(f.az, f.bz) + 1);
+  }
+  // Fences stop at buildings, roads, water and hand-built sites.
+  function fenceBlocked(x, z) {
+    const e = lookup(x, z);
+    for (const st of e.sites) if (x >= st.x0 - 0.5 && x <= st.x1 + 0.5 && z >= st.z0 - 0.5 && z <= st.z1 + 0.5) return true;
+    for (const b of e.blds) if (x >= b.x0 - 0.6 && x <= b.x1 + 0.6 && z >= b.z0 - 0.6 && z <= b.z1 + 0.6 && (pointInPoly(b.p, x, z) || pointInPoly(b.p, x + 0.6, z) || pointInPoly(b.p, x - 0.6, z) || pointInPoly(b.p, x, z + 0.6) || pointInPoly(b.p, x, z - 0.6))) return true;
+    for (const r of e.roads) if (segDist(x, z, r).d < r.r.w / 2 + 0.7) return true;
+    for (const rv of e.rivers) if (segDist(x, z, rv).d < rv.w / 2 + 1.5) return true;
+    return false;
+  }
+  function fenceAllowedAt(f, t) {
+    for (const g of f.gaps) if (t >= g[0] && t <= g[1]) return false;
+    if (f.force) return true;
+    return !fenceBlocked(f.ax + f.dx * t, f.az + f.dz * t);
+  }
+  function buildHouseFences() {
+    const plots = [];
+    for (const b of buildings) {
+      if (b.k !== 'house') continue;
+      let best = null, bd = 45;
+      for (let oz = -32; oz <= 32; oz += 32) for (let ox = -32; ox <= 32; ox += 32) for (const sg of lookup(b.cx + ox, b.cz + oz).roads) {
+        if (sg.r.type === 'footway' || sg.r.type === 'path' || sg.r.type === 'track') continue;
+        const q = segDist(b.cx, b.cz, sg);
+        if (q.d < bd) { bd = q.d; best = { sg, q }; }
+      }
+      if (!best) continue;
+      const sg = best.sg, tx = (sg.bx - sg.ax) / sg.len, tz = (sg.bz - sg.az) / sg.len;
+      let nx = -tz, nz = tx;
+      const qx = sg.ax + tx * sg.len * best.q.t, qz = sg.az + tz * sg.len * best.q.t;
+      const side = (b.cx - qx) * nx + (b.cz - qz) * nz < 0 ? -1 : 1;
+      nx *= side; nz *= side;
+      const base = best.q.t * sg.len;
+      let s0 = 1e9, s1 = -1e9, d0 = 1e9, d1 = -1e9;
+      for (let k = 0; k < b.p.length; k += 2) {
+        const px = b.p[k] - qx, pz = b.p[k + 1] - qz, a = px * tx + pz * tz, o = px * nx + pz * nz;
+        s0 = Math.min(s0, a); s1 = Math.max(s1, a); d0 = Math.min(d0, o); d1 = Math.max(d1, o);
+      }
+      // Village streets are wide: fences stand well back from the road, but never in front of the house.
+      let front = sg.r.w / 2 + 3.5;
+      if (d0 < front + 1) front = d0 - 1.5;
+      if (front < sg.r.w / 2 + 1.6 || s1 - s0 > 40) continue;
+      plots.push({ sg, side, tx, tz, nx, nz, start: base + s0 - 2.5, end: base + s1 + 4.5, hs0: base + s0, hs1: base + s1, front, back: Math.min(Math.max(d1 + 9, front + 20), front + 40), shared: false });
+    }
+    // Neighbours along the same stretch of road share the fence between them.
+    const groups = new Map();
+    for (const p of plots) { const k = p.sg; if (!groups.has(k)) groups.set(k, { 1: [], '-1': [] }); groups.get(k)[p.side].push(p); }
+    for (const [sg, sides] of groups) for (const key of ['1', '-1']) {
+      const list = sides[key].sort((a, b) => a.hs0 - b.hs0);
+      for (let i = 0; i + 1 < list.length; i++) {
+        const a = list[i], b = list[i + 1];
+        if (a.end > b.start) { const m = (a.hs1 + b.hs0) / 2; a.end = m; b.start = m; b.shared = true; }
+      }
+      for (const p of list) {
+        const P = (along, out) => [sg.ax + p.tx * along + p.nx * out, sg.az + p.tz * along + p.nz * out];
+        const w = p.end - p.start;
+        const [ax, az] = P(p.start, p.front), [bx, bz] = P(p.end, p.front);
+        addFence({ ax, az, bx, bz, gaps: w > 9 ? [[w - 4.6, w - 1.2]] : [] });
+        const [cx, cz] = P(p.end, p.back);
+        addFence({ ax: bx, az: bz, bx: cx, bz: cz });
+        if (!p.shared) { const [dx, dz] = P(p.start, p.back); addFence({ ax, az, bx: dx, bz: dz }); }
+        const [ex, ez] = P(p.start, p.back);
+        addFence({ ax: ex, az: ez, bx: cx, bz: cz });
+      }
+    }
+  }
 
   function segDist(x, z, s) {
     const dx = s.bx - s.ax, dz = s.bz - s.az;
@@ -235,7 +310,7 @@
       if (px >= s.x0 && px <= s.x1 && pz >= s.z0 && pz <= s.z1) { site = s; water = false; }
     }
     out.b = null; out.road = false; out.deck = -1; out.site = site; out.luClass = landuse(px, pz); out.sand = sand;
-    out.ground = GROUND_Y; out.surf = B.GROUND; out.water = -1; out.roadName = '';
+    out.ground = GROUND_Y; out.surf = B.GROUND; out.water = -1; out.roadName = ''; out.fence = false;
     if (site) return out;
 
     const list = e.blds;
@@ -252,6 +327,17 @@
       if (q.d <= s.r.w / 2 && q.d < roadD) { roadD = q.d; out.road = true; out.roadName = s.r.name; }
     }
     if (water && out.deck < 0) out.water = GROUND_Y;
+    out.fence = false;
+    if (!out.road && out.water < 0) {
+      const fe = e.fences;
+      for (let i = 0; i < fe.length; i++) {
+        const f = fe[i];
+        const t = (px - f.ax) * f.dx + (pz - f.az) * f.dz;
+        if (t < 0 || t > f.len) continue;
+        const d = Math.abs((px - f.ax) * f.dz - (pz - f.az) * f.dx);
+        if (d < 0.5 && fenceAllowedAt(f, t)) { out.fence = true; break; }
+      }
+    }
     return out;
   }
 
@@ -260,13 +346,24 @@
     const r = hash(cellX * 3 + 11, cellZ * 7 - 5);
     const tx = cellX * 6 + hashI(cellX, cellZ + 1000, 6), tz = cellZ * 6 + hashI(cellX + 1000, cellZ, 6);
     const c = landuse(tx, tz);
-    const density = c === LU.FOREST ? 0.05 : c === LU.WETLAND ? 0.02 : c === LU.CEMETERY ? 0.03 : c === LU.GRASS ? 0.002 : c === LU.STEPPE ? 0.0003 : 0;
+    let density = c === LU.FOREST ? 0.05 : c === LU.WETLAND ? 0.02 : c === LU.CEMETERY ? 0.03 : c === LU.GRASS ? 0.002 : c === LU.STEPPE ? 0.0003 : 0;
+    // Willows line the riverbanks.
+    let riverside = false;
+    for (const rv of lookup(tx, tz).rivers) { const d = segDist(tx + 0.5, tz + 0.5, rv).d - rv.w / 2; if (d > 4 && d < 15) riverside = true; }
+    if (riverside) density = Math.max(density, 0.035);
     if (r > density) return null;
     for (const [ox, oz] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
       const q = column(tx + ox, tz + oz);
       if (q.b || q.road || q.site || q.water >= 0 || q.sand) return null;
     }
-    return { x: tx + 0.5, z: tz + 0.5, y: TOP, birch: hash(cellX + 7, cellZ + 3) < 0.4, h: 6.5 + hash(cellX + 2, cellZ) * 3 };
+    const k = hash(cellX + 7, cellZ + 3), hh = hash(cellX + 2, cellZ);
+    let type;
+    if (riverside && c !== LU.FOREST) type = k < 0.7 ? 'willow' : 'birch';
+    else if (c === LU.FOREST) type = k < 0.45 ? 'pine' : 'birch';
+    else if (c === LU.CEMETERY) type = k < 0.5 ? 'birch' : 'poplar';
+    else type = k < 0.35 ? 'poplar' : k < 0.7 ? 'birch' : 'broad';
+    const H = { pine: [9, 4], poplar: [12, 4], birch: [8, 3], broad: [6, 3], willow: [7, 2] }[type];
+    return { x: tx + 0.5, z: tz + 0.5, y: TOP, type, h: H[0] + hh * H[1] };
   }
 
   // Sparse low plants, so the flat ground is not bare up close.
@@ -303,6 +400,8 @@
         if (!(b.interior && b.interior(x, z, set))) for (let y = TOP; y < TOP + 4; y++) vol[base + (y - minY) * stride] = B.INVIS;
       } else if (c.water >= 0) {
         for (let y = TOP; y < TOP + 3; y++) vol[base + (y - minY) * stride] = B.WATER_WALL;
+      } else if (c.fence) {
+        vol[base + 2 * stride] = B.INVIS; vol[base + 3 * stride] = B.INVIS;
       } else if (!c.road && !c.site && !c.sand) {
         const f = floraAt(x, z, c.luClass);
         if (f) vol[base + 2 * stride] = f;
@@ -319,7 +418,9 @@
     if (extra) extra.trees.forEach((t) => trees.push(t));
     for (const s of near) s.stamp(set);
     for (const t of trees) for (let y = TOP; y < TOP + 3; y++) set(Math.floor(t.x), y, Math.floor(t.z), B.INVIS);
-    return { vol, minY, H, wx0, wz0, trees, blds: extra ? extra.blds : [], roofs: extra ? extra.roofs : [] };
+    const fenceSet = new Set();
+    for (let oz = 0; oz < CS; oz += CELL) for (let ox = 0; ox < CS; ox += CELL) lookup(cx * CS + ox, cz * CS + oz).fences.forEach((f) => fenceSet.add(f));
+    return { vol, minY, H, wx0, wz0, cx, cz, trees, blds: extra ? extra.blds : [], roofs: extra ? extra.roofs : [], fences: [...fenceSet] };
   }
 
   // English street names. The data keeps the Russian originals from OpenStreetMap; the screen shows these.
@@ -354,7 +455,7 @@
   }
 
   G.world = {
-    D, bounds, ABROAD, CS, VS, TOP, GROUND_Y, column, generateVolume, treeAt, landuse, LU, roads, buildings, buildingAt, inB, addSite, addRoof, addFlat, addFarBox, addTree, flats, farBoxes, sites,
+    D, bounds, ABROAD, CS, VS, TOP, GROUND_Y, column, generateVolume, treeAt, fences, addFence, fenceAllowedAt, buildHouseFences, landuse, LU, roads, buildings, buildingAt, inB, addSite, addRoof, addFlat, addFarBox, addTree, flats, farBoxes, sites,
     hash, hashI, roadNameAt, enName, pointInPoly, lookup, segDist, elevation: () => GROUND_Y + 0.5,
   };
 })();

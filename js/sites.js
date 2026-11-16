@@ -8,157 +8,192 @@
 
   const doors = []; // { x, y, z, along:'x'|'z', swing:±1, id, locked }
 
-  // ---------- Homestead ----------
-  const H = D.home, S = H.size;
+  // ---------- Homestead at Akmulla St 76 ----------
+  // Lot coordinates: u runs along the street (0..LW-1), v runs back from the street (0..LD-1). Gate on v = 0.
+  const H = D.home, LW = H.w, LD = H.d;
   const toWorld = {
     n: (u, v) => [H.x + u, H.z + v],
-    s: (u, v) => [H.x + S - 1 - u, H.z + S - 1 - v],
-    w: (u, v) => [H.x + v, H.z + S - 1 - u],
-    e: (u, v) => [H.x + S - 1 - v, H.z + u],
+    s: (u, v) => [H.x + LW - 1 - u, H.z + LD - 1 - v],
+    w: (u, v) => [H.x + v, H.z + LW - 1 - u],
+    e: (u, v) => [H.x + LD - 1 - v, H.z + u],
   }[H.gate];
   const homeY = W.TOP;
   const TI = G.blocks.tileIndex;
-  // A pitched roof mesh over local cells u0..u1, v0..v1, with its ridge along u.
-  const homeRoof = (u0, u1, v0, v1, y, rise, roofT, wallT) => {
+  const alongStreetIsX = H.gate === 'n' || H.gate === 's';
+  // A pitched roof mesh over local cells u0..u1, v0..v1. ridge: 'u' or 'v' (the local axis the ridge follows).
+  const homeRoof = (u0, u1, v0, v1, y, rise, roofT, wallT, ridge) => {
     const a = toWorld(u0, v0), b = toWorld(u1, v1);
-    W.addRoof({
-      x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]) + 1, z0: Math.min(a[1], b[1]), z1: Math.max(a[1], b[1]) + 1,
-      y: homeY + y, rise, roofT, wallT, ridge: H.gate === 'n' || H.gate === 's' ? 'x' : 'z',
-    });
+    const ridgeWorld = (ridge === 'u') === alongStreetIsX ? 'x' : 'z';
+    W.addRoof({ x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]) + 1, z0: Math.min(a[1], b[1]), z1: Math.max(a[1], b[1]) + 1, y: homeY + y, rise, roofT, wallT, ridge: ridgeWorld });
   };
-
   const cmds = [];
   const put = (u, y, v, id) => { const [x, z] = toWorld(u, v); cmds.push(x, homeY + y, z, id); };
   const box = (u0, u1, y0, y1, v0, v1, id) => { for (let y = y0; y <= y1; y++) for (let v = v0; v <= v1; v++) for (let u = u0; u <= u1; u++) put(u, y, v, id); };
+  // Continuous lot position -> world.
+  const homePos = (u, y, v) => {
+    const fu = Math.floor(u), fv = Math.floor(v);
+    const [x0, z0] = toWorld(fu, fv);
+    const du = u - fu, dv = v - fv;
+    const r = { n: [du, dv], s: [1 - du, 1 - dv], w: [dv, 1 - du], e: [1 - dv, du] }[H.gate];
+    return new THREE.Vector3(x0 + r[0], homeY + y, z0 + r[1]);
+  };
 
-  // Fence with a gate gap on the road side.
-  for (let i = 0; i < S; i++) {
-    if (i < 15 || i > 18) put(i, 0, 0, B.FENCE);
-    put(i, 0, S - 1, B.FENCE);
-    put(0, 0, i, B.FENCE);
-    put(S - 1, 0, i, B.FENCE);
+  // ---- Metal fence round the lot: car gate and a wicket on the street side ----
+  const fenceLine = (u0, v0, u1, v1, gaps) => {
+    const a = homePos(u0, 0, v0), b = homePos(u1, 0, v1);
+    W.addFence({ ax: a.x, az: a.z, bx: b.x, bz: b.z, force: true, gaps: gaps || [] });
+  };
+  const GATE0 = 17, GATE1 = 22, WICKET = 7;
+  fenceLine(0.5, 0.5, LW - 0.5, 0.5, [[WICKET - 0.5, WICKET + 0.5], [GATE0 - 0.5, GATE1 + 0.5]]);
+  fenceLine(0.5, 0.5, 0.5, LD - 0.5);
+  fenceLine(LW - 0.5, 0.5, LW - 0.5, LD - 0.5);
+  fenceLine(0.5, LD - 0.5, LW - 0.5, LD - 0.5);
+  for (let i = 0; i < LW; i++) {
+    const gap = i === WICKET || (i >= GATE0 && i <= GATE1);
+    if (!gap) { put(i, 0, 0, B.INVIS); put(i, 1, 0, B.INVIS); }
+    put(i, 0, LD - 1, B.INVIS); put(i, 1, LD - 1, B.INVIS);
   }
-  // Yard paths, vegetable beds, flowers
-  box(15, 18, -1, -1, 0, 16, B.DIRT_ROAD);
-  box(9, 14, -1, -1, 14, 16, B.DIRT_ROAD);
-  box(3, 11, -1, -1, 3, 11, B.SOIL);
-  for (let v = 3; v <= 11; v += 2) for (let u = 3; u <= 11; u++) put(u, 0, v, B.CROP);
-  for (const u of [5, 6, 7, 8, 12, 13, 14]) put(u, 0, 16, u % 2 ? B.FLOWER_BLUE : B.FLOWER_YELLOW);
-  for (let i = 0; i < 70; i++) {
-    const u = 1 + W.hashI(i, 5, S - 2), v = 1 + W.hashI(i, 9, S - 2);
-    const free = !(u >= 3 && u <= 18 && v <= 16) && !(u >= 3 && u <= 18 && v >= 16) && !(u >= 21 && u <= 31 && v >= 5);
-    if (free) put(u, 0, v, W.hash(i, 3) < 0.75 ? B.GRASS_PLANT : B.FLOWER_WHITE);
-  }
+  for (let i = 0; i < LD; i++) { put(0, 0, i, B.INVIS); put(0, 1, i, B.INVIS); put(LW - 1, 0, i, B.INVIS); put(LW - 1, 1, i, B.INVIS); }
 
-  // ---------- House: u 4..16, v 17..27. Front door on v=17, facing the gate ----------
-  const U0 = 4, U1 = 16, V0 = 17, V1 = 27;
-  box(U0 + 1, U1 - 1, -1, -1, V0 + 1, V1 - 1, B.PLANKS);
-  for (let y = 0; y <= 2; y++) for (let v = V0; v <= V1; v++) for (let u = U0; u <= U1; u++) {
-    if (u === U0 || u === U1 || v === V0 || v === V1) put(u, y, v, B.WALL_BLUE);
-    else put(u, y, v, 0);
+  // ---- The house, from the owner's plan ----
+  // Plan grid: c = 0..12 across (left to right on the drawing), r = 0..20 from the back wall to the front (entrance) wall.
+  const HC = (c) => 1 + c, HR = (r) => 3 + (20 - r);
+  const hp = (c, y, r, id) => put(HC(c), y, HR(r), id);
+  const hbox = (c0, c1, y0, y1, r0, r1, id) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) for (let y = y0; y <= y1; y++) hp(c, y, r, id); };
+  // Floor, outer walls (log siding), ceiling
+  hbox(1, 11, -1, -1, 1, 19, B.PLANKS);
+  for (let r = 0; r <= 20; r++) for (let c = 0; c <= 12; c++) {
+    const edge = c === 0 || c === 12 || r === 0 || r === 20;
+    for (let y = 0; y <= 3; y++) hp(c, y, r, edge ? B.WALL_LOG : y === 3 ? B.PLANKS : 0);
   }
-  // Windows with painted frames
-  for (const u of [7, 13]) { put(u, 1, V0, B.WIN_BLUE); put(u, 1, V1, B.WIN_BLUE); }
-  for (const v of [20, 24]) { put(U0, 1, v, B.WIN_BLUE); put(U1, 1, v, B.WIN_BLUE); }
-  // Door opening (door mesh is added below)
-  put(10, 0, V0, 0); put(10, 1, V0, 0);
-  // Pitched roof with overhang, ridge along u
-  for (let v = V0; v <= V1; v++) for (let u = U0; u <= U1; u++) if (u === U0 || u === U1 || v === V0 || v === V1) put(u, 3, v, B.WALL_BLUE);
-  box(U0 + 1, U1 - 1, 3, 3, V0 + 1, V1 - 1, B.PLANKS); // ceiling
-  homeRoof(U0 - 1, U1 + 1, V0 - 1, V1 + 1, 4, 3.6, TI.roof_green, TI.wall_white);
-  // Chimney
-  box(15, 15, 3, 8, 19, 19, B.BRICK_RED);
-  // Porch
-  box(9, 11, -1, -1, 15, 16, B.PLANKS);
-  // Partition between kitchen and bedroom
-  box(U0 + 1, U1 - 1, 0, 2, 22, 22, B.WALL_WHITE);
-  put(10, 0, 22, 0); put(10, 1, 22, 0);
-  // Kitchen
-  box(5, 6, 0, 1, 18, 18, B.CUPBOARD);
-  box(7, 8, 0, 0, 20, 20, B.TABLE);
-  put(15, 0, 18, B.STOVE_FRONT); put(15, 1, 18, B.STOVE); put(15, 2, 18, B.STOVE);
-  box(15, 15, 0, 1, 21, 21, B.FRIDGE);
-  put(13, 0, 18, B.COUNTER); put(14, 0, 18, B.COUNTER);
-  // Bedroom
-  box(5, 6, 0, 0, 24, 25, B.BED);
-  box(8, 13, -1, -1, 24, 25, B.RUG);
-  box(10, 11, 1, 2, V1, V1, B.RUG);
-  box(15, 15, 0, 1, 26, 26, B.CUPBOARD);
+  // Partitions (white plaster)
+  const wallRun = (c0, c1, r0, r1) => hbox(c0, c1, 0, 2, r0, r1, B.WALL_WHITE);
+  const opening = (c, r, wide) => { for (let y = 0; y <= 1; y++) { hp(c, y, r, 0); if (wide) hp(c, y, r + 1, 0); } };
+  wallRun(5, 5, 1, 19); wallRun(8, 8, 1, 19);
+  wallRun(1, 4, 4, 4); wallRun(1, 4, 9, 9); wallRun(1, 4, 13, 13); wallRun(1, 4, 17, 17);
+  wallRun(9, 11, 5, 5); wallRun(9, 11, 10, 10); wallRun(9, 11, 16, 16);
+  opening(5, 2); opening(5, 8); opening(5, 12); opening(5, 15); opening(4, 17);
+  opening(8, 2); opening(8, 9); opening(8, 12); opening(8, 17, true);
+  // Front door (door mesh added below) and windows
+  hp(6, 0, 20, 0); hp(6, 1, 20, 0);
+  for (const r of [2, 8, 10, 18]) hp(0, 1, r, B.WIN_LOG);
+  for (const r of [7, 13, 18]) hp(12, 1, r, B.WIN_LOG);
+  for (const c of [2, 10]) { hp(c, 1, 20, B.WIN_LOG); hp(c, 1, 0, B.WIN_LOG); }
+  // Living / dining corner: L-shaped sofa and a table
+  hbox(1, 1, 0, 0, 1, 3, B.SOFA); hbox(2, 3, 0, 0, 1, 1, B.SOFA);
+  hbox(3, 3, 0, 0, 2, 3, B.TABLE);
+  hbox(2, 4, -1, -1, 2, 3, B.RUG);
+  // Kitchen: sink, cupboard, fridge, oven and counter, table
+  hbox(1, 4, -1, -1, 5, 8, B.FLOOR_TILE);
+  hp(1, 0, 5, B.SINK); hbox(2, 2, 0, 1, 5, 5, B.CUPBOARD); hbox(4, 4, 0, 1, 5, 5, B.FRIDGE);
+  hp(3, 0, 6, B.STOVE_FRONT); hp(4, 0, 6, B.COUNTER); hp(2, 0, 6, B.COUNTER);
+  hbox(2, 3, 0, 0, 7, 7, B.TABLE);
+  hbox(3, 3, 3, 8, 6, 6, B.BRICK_RED); // chimney through the roof
+  // Bedroom 1 (where you wake up)
+  hbox(2, 4, 0, 0, 10, 11, B.BED);
+  hbox(1, 4, -1, -1, 12, 12, B.RUG);
+  // Wardrobe room
+  hbox(1, 1, 0, 1, 14, 16, B.CUPBOARD);
+  // Bedroom 2 (front corner)
+  hbox(1, 3, 0, 0, 18, 19, B.BED);
+  hbox(4, 4, -1, -1, 18, 19, B.RUG);
+  // Corridor: shoe cupboard by the entrance
+  hbox(6, 6, 0, 0, 15, 16, B.CUPBOARD);
+  // Stairs to the attic
+  hbox(9, 9, 0, 0, 2, 3, B.PLANKS); hbox(10, 10, 0, 1, 2, 3, B.PLANKS); hbox(11, 11, 0, 2, 2, 3, B.PLANKS);
+  // Bedroom 3: bed and wardrobe
+  hbox(10, 11, 0, 0, 6, 7, B.BED); hbox(11, 11, 0, 1, 8, 9, B.CUPBOARD);
+  // Bedroom 4: bed and couch
+  hbox(10, 11, 0, 0, 11, 12, B.BED); hbox(10, 11, 0, 0, 14, 14, B.SOFA);
+  hbox(9, 11, -1, -1, 13, 13, B.RUG);
+  // Front room: TV in the corner, armchair, rug
+  hp(11, 0, 19, B.TV); hp(9, 0, 19, B.SOFA);
+  hbox(9, 11, -1, -1, 17, 18, B.RUG);
+  // Roof: ridge along the length of the house
+  homeRoof(HC(-1), HC(13), HR(21), HR(-1), 4, 3.4, TI.roof_green, TI.wall_log, 'v');
+  // Porch and path to the wicket
+  box(6, 8, -1, -1, 1, 2, B.PLANKS);
+  box(WICKET, WICKET, -1, -1, 0, 0, B.DIRT_ROAD);
 
-  // ---------- Shed: u 21..30, v 20..29 ----------
-  for (let y = 0; y <= 2; y++) for (let v = 20; v <= 29; v++) for (let u = 21; u <= 30; u++) {
-    if (u === 21 || u === 30 || v === 20 || v === 29) put(u, y, v, B.WALL_LOG);
-    else put(u, y, v, 0);
+  // ---- Yard ----
+  box(GATE0, GATE1, -1, -1, 0, 16, B.GRAVEL); // driveway
+  box(1, 12, -1, -1, 30, 50, B.SOIL);           // vegetable garden
+  for (let v = 31; v <= 49; v += 2) for (let u = 2; u <= 11; u++) put(u, 0, v, B.CROP);
+  for (const u of [14, 15]) for (const v of [4, 6, 8, 10]) put(u, 0, v, v % 4 ? B.FLOWER_BLUE : B.FLOWER_YELLOW);
+  for (let i = 0; i < 90; i++) {
+    const u = 1 + W.hashI(i, 5, LW - 2), v = 1 + W.hashI(i, 9, LD - 2);
+    const busy = (u <= 14 && v <= 24) || (u >= GATE0 && u <= GATE1 && v <= 16) || (u <= 12 && v >= 29 && v <= 51) || (u >= 15 && v >= 25 && v <= 46);
+    if (!busy) put(u, 0, v, W.hash(i, 3) < 0.8 ? B.GRASS_PLANT : B.FLOWER_WHITE);
   }
-  box(22, 29, -1, -1, 21, 28, B.PLANKS);
-  put(26, 0, 20, 0); put(26, 1, 20, 0);
-  put(23, 1, 20, B.WIN_LOG); put(29, 1, 20, B.WIN_LOG);
-  for (let v = 20; v <= 29; v++) for (let u = 21; u <= 30; u++) if (u === 21 || u === 30 || v === 20 || v === 29) put(u, 3, v, B.WALL_LOG);
-  box(22, 29, 3, 3, 21, 28, B.PLANKS);
-  homeRoof(20, 31, 19, 30, 4, 2.8, TI.roof_brown, TI.wall_log);
-  put(22, 0, 21, B.SACK); put(23, 0, 21, B.SACK); put(22, 1, 21, B.SACK);
-  box(27, 29, 0, 1, 26, 28, B.HAY); put(29, 2, 28, B.HAY);
-  put(25, 0, 28, B.CHEST);
-  put(22, 0, 28, B.CRATE); put(22, 1, 28, B.CRATE); put(23, 0, 28, B.CRATE);
-
-  // ---------- Chicken coop: u 24..30, v 5..10 ----------
-  for (let y = 0; y <= 1; y++) for (let v = 5; v <= 10; v++) for (let u = 24; u <= 30; u++) {
-    if (u === 24 || u === 30 || v === 5 || v === 10) put(u, y, v, B.WALL_LOG);
-    else put(u, y, v, 0);
+  // Barn / shed: u 15..23, v 26..34, door facing the house
+  for (let y = 0; y <= 3; y++) for (let v = 26; v <= 34; v++) for (let u = 15; u <= 23; u++) {
+    const edge = u === 15 || u === 23 || v === 26 || v === 34;
+    put(u, y, v, edge ? B.WALL_LOG : y === 3 ? B.PLANKS : 0);
   }
-  box(25, 29, -1, -1, 6, 9, B.STRAW);
-  put(24, 0, 8, 0); put(24, 1, 8, 0);
-  homeRoof(23, 31, 4, 11, 2, 1.5, TI.roof_red, TI.wall_log);
-  box(22, 23, 0, 0, 13, 13, B.TROUGH);
-  put(29, 0, 14, B.HAY); put(30, 0, 14, B.HAY); put(29, 1, 14, B.HAY);
-
-  // Yard trees
-  const yardTree = (u, v, birch, h) => { const [x, z] = toWorld(u, v); W.addTree(x + 0.5, z + 0.5, birch, h); };
-  yardTree(20, 3, true, 8);
-  yardTree(2, 30, true, 7.5);
-  yardTree(18, 30, false, 7);
+  box(16, 22, -1, -1, 27, 33, B.PLANKS);
+  put(19, 0, 26, 0); put(19, 1, 26, 0);
+  put(17, 1, 26, B.WIN_LOG); put(22, 1, 26, B.WIN_LOG);
+  homeRoof(14, 24, 25, 35, 4, 2.6, TI.roof_brown, TI.wall_log, 'u');
+  put(16, 0, 27, B.SACK); put(17, 0, 27, B.SACK); put(16, 1, 27, B.SACK);
+  box(20, 22, 0, 1, 31, 33, B.HAY); put(22, 2, 33, B.HAY);
+  put(19, 0, 33, B.CHEST);
+  put(16, 0, 33, B.CRATE); put(16, 1, 33, B.CRATE); put(17, 0, 33, B.CRATE);
+  // Chicken coop: u 17..23, v 40..45, opening on the garden side
+  for (let y = 0; y <= 1; y++) for (let v = 40; v <= 45; v++) for (let u = 17; u <= 23; u++) {
+    const edge = u === 17 || u === 23 || v === 40 || v === 45;
+    put(u, y, v, edge ? B.WALL_LOG : 0);
+  }
+  box(18, 22, -1, -1, 41, 44, B.STRAW);
+  put(17, 0, 42, 0); put(17, 1, 42, 0);
+  homeRoof(16, 24, 39, 46, 2, 1.5, TI.roof_red, TI.wall_log, 'u');
+  box(18, 19, 0, 0, 37, 37, B.TROUGH);
+  put(22, 0, 37, B.HAY); put(23, 0, 37, B.HAY); put(22, 1, 37, B.HAY);
+  // Trees: an apple tree by the garden, birches along the fence
+  const yardTree = (u, v, type, h) => { const p = homePos(u + 0.5, 0, v + 0.5); W.addTree(p.x, p.z, type, h); };
+  yardTree(14, 52, 'broad', 6.5);
+  yardTree(3, 27, 'broad', 6);
+  yardTree(24, 2, 'birch', 9.5);
+  yardTree(2, 53, 'birch', 9);
 
   const worldCmds = Int32Array.from(cmds);
   const stamp = (set) => {
     for (let i = 0; i < worldCmds.length; i += 4) set(worldCmds[i], worldCmds[i + 1], worldCmds[i + 2], worldCmds[i + 3]);
   };
-  W.addSite({ id: 'home', x0: H.x, z0: H.z, x1: H.x + S, z1: H.z + S, y: homeY, stamp, top: homeY + 10 });
+  const c0 = toWorld(0, 0), c1 = toWorld(LW - 1, LD - 1);
+  const rect = { x0: Math.min(c0[0], c1[0]), z0: Math.min(c0[1], c1[1]), x1: Math.max(c0[0], c1[0]) + 1, z1: Math.max(c0[1], c1[1]) + 1 };
+  W.addSite(Object.assign({ id: 'home', y: homeY, stamp, top: homeY + 10 }, rect));
 
-  // Converts a local position (block centre coords) to world coordinates.
-  const homePos = (u, y, v) => {
-    const [x0, z0] = toWorld(Math.floor(u), Math.floor(v));
-    const fu = u - Math.floor(u), fv = v - Math.floor(v);
-    const r = { n: [fu, fv], s: [1 - fu, 1 - fv], w: [fv, 1 - fu], e: [1 - fv, fu] }[H.gate];
-    return new THREE.Vector3(x0 + r[0], homeY + y, z0 + r[1]);
-  };
   const dirV = { n: [0, 1], s: [0, -1], w: [1, 0], e: [-1, 0] }[H.gate]; // world direction of +v
-  const alongU = H.gate === 'n' || H.gate === 's' ? 'x' : 'z';
-  const homeDoor = (u, v, id, extra) => {
-    const [x, z] = toWorld(u, v);
-    const d = Object.assign({ x, y: homeY, z, along: alongU, id, swing: 1 }, extra);
-    doors.push(d);
-    return d;
-  };
-  homeDoor(10, V0, 'home');
-  homeDoor(26, 20, 'shed');
+  const alongU = alongStreetIsX ? 'x' : 'z';
+  const homeDoor = (u, v, id) => { const [x, z] = toWorld(u, v); const d = { x, y: homeY, z, along: alongU, id, swing: 1 }; doors.push(d); return d; };
+  homeDoor(HC(6), HR(20), 'home');
+  homeDoor(19, 26, 'shed');
+  const yawTo = (a, b) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
+  const spawn = homePos(HC(1) + 0.5, 0, HR(12) + 0.5);
 
   const home = {
-    y: homeY, pos: homePos, dirV, x0: H.x, z0: H.z, x1: H.x + S, z1: H.z + S,
-    spawn: homePos(8.5, 0, 25.5),
-    spawnYaw: (() => { const a = homePos(8.5, 0, 25.5), b = homePos(10.5, 0, 22.5); return Math.atan2(-(b.x - a.x), -(b.z - a.z)); })(), // wakes up looking through the bedroom doorway
-    car: homePos(17, 0, 9),
+    y: homeY, pos: homePos, dirV, x0: rect.x0, z0: rect.z0, x1: rect.x1, z1: rect.z1, lot: { w: LW, d: LD },
+    plan: { HC, HR },
+    spawn,
+    spawnYaw: yawTo(spawn, homePos(HC(5) + 0.5, 0, HR(12) + 0.5)), // wakes up facing the bedroom door
+    car: homePos(19.5, 0, 9),
     carHeading: Math.atan2(dirV[0], dirV[1]), // nose towards the gate (forward = -sin h, -cos h)
-    sack: homePos(22.5, 0.6, 21.5),
-    chest: homePos(25.5, 0.6, 28.5),
-    cupboard: homePos(5.5, 1, 18.5),
-    keyHook: homePos(7.6, 1.02, 20.5),
-    bed: homePos(5.5, 0.6, 24.5),
-    fridge: homePos(15.5, 1, 21.5),
-    trough: homePos(22.5, 0.7, 13.5),
-    chickenArea: { u0: 19, u1: 31, v0: 2, v1: 17 },
-    catArea: { u0: 2, u1: 20, v0: 1, v1: 16 },
-    bowl: homePos(12.5, 0, 15.5),
-    center: homePos(17, 0, 17),
+    sack: homePos(16.5, 0.6, 27.5),
+    chest: homePos(19.5, 0.6, 33.5),
+    cupboard: homePos(HC(2) + 0.5, 1, HR(5) + 0.5),
+    keyHook: homePos(HC(2) + 0.9, 1.02, HR(7) + 0.5),
+    bed: homePos(HC(3) + 0.5, 0.6, HR(10)),
+    fridge: homePos(HC(4) + 0.5, 1, HR(5) + 0.5),
+    trough: homePos(18.5, 0.7, 37.5),
+    frontDoorOutside: homePos(HC(6) + 0.5, 0, 1.5),
+    frontDoorInside: homePos(HC(6) + 0.5, 0, HR(19) + 0.5),
+    shedOutside: homePos(19.5, 0, 24.5),
+    shedInside: homePos(18.5, 0, 29.5),
+    gate: homePos(19.5, 0, -2),
+    chickenArea: { u0: 15, u1: 24, v0: 36, v1: 54 },
+    catArea: { u0: 14, u1: 24, v0: 2, v1: 24 },
+    bowl: homePos(15.5, 0, 4.5),
+    center: homePos(13, 0, 28),
   };
 
   // ---------- OSM buildings with real interiors ----------
@@ -431,5 +466,6 @@
     };
   })();
 
+  W.buildHouseFences();
   G.sites = { home, shop, work, doors, landmarks, airHome, airAbroad, hotel };
 })();

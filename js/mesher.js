@@ -15,12 +15,12 @@
     uTime: { value: 0 },
     uSun: { value: new THREE.Color(1, 1, 1) },
     uFogColor: { value: new THREE.Color(0.7, 0.8, 0.9) },
-    uFogNear: { value: 260 },
-    uFogFar: { value: 3000 },
+    uFogNear: { value: 60 },
+    uFogFar: { value: 14000 },
   };
   const FOG_GLSL = `
     uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar;
-    vec3 applyFog(vec3 c, float dist) { return mix(c, uFogColor, clamp((dist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0)); }
+    vec3 applyFog(vec3 c, float dist) { return mix(c, uFogColor, 1.0 - exp(-max(dist - uFogNear, 0.0) / uFogFar)); }
   `;
 
   let voxelMat, waterMat, entityMat, glassMat, farMat, groundMat, tilesTex;
@@ -260,32 +260,86 @@
     quad([X0, y - 0.01, Z0, 0, 0, 0.5], [X1, y - 0.01, Z0, X1 - X0, 0, 0.5], [X1, y - 0.01, Z1, X1 - X0, Z1 - Z0, 0.5], [X0, y - 0.01, Z1, 0, Z1 - Z0, 0.5], TI.planks);
   }
 
-  // ---------- low-poly trees ----------
+  // ---------- trees: tapered trunks, a few branches, and crowns of crossed leaf cards ----------
   const ICO = (() => {
     const t = (1 + Math.sqrt(5)) / 2;
     const v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map((p) => { const l = Math.hypot(...p); return p.map((c) => c / l); });
     const f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
     return { v, f };
   })();
-  function emitBlob(cx, cy, cz, rx, ry, rz, layer, seed) {
+  function emitBlob(cx, cy, cz, rx, ry, rz, layer, seed, dim) {
     const pts = ICO.v.map((p, i) => {
       const j = 0.82 + W.hash(seed + i, seed * 3) * 0.36;
-      const ny = p[1];
-      return [cx + p[0] * rx * j, cy + p[1] * ry * j, cz + p[2] * rz * j, (cx + p[0] * rx) * 0.45 + p[2] * rz * 0.45, (cy + p[1] * ry) * 0.45, 0.62 + 0.36 * (ny * 0.5 + 0.5)];
+      return [cx + p[0] * rx * j, cy + p[1] * ry * j, cz + p[2] * rz * j, (cx + p[0] * rx) * 0.45 + p[2] * rz * 0.45, (cy + p[1] * ry) * 0.45, (0.5 + 0.3 * (p[1] * 0.5 + 0.5)) * (dim || 1)];
     });
     for (const f of ICO.f) tri(pts[f[0]], pts[f[1]], pts[f[2]], layer);
   }
+  // Two crossed quads (an X), w wide and h tall, turned by ang, leaning by tilt.
+  function emitCard(cx, cy, cz, w, h, ang, tilt, layer, l0, l1) {
+    for (const a of [ang, ang + Math.PI / 2]) {
+      const ux = (Math.cos(a) * w) / 2, uz = (Math.sin(a) * w) / 2, hy = h / 2;
+      const px = -Math.sin(a) * tilt * hy, pz = Math.cos(a) * tilt * hy;
+      quad([cx - ux - px, cy - hy, cz - uz - pz, 0, 0, l0], [cx + ux - px, cy - hy, cz + uz - pz, 1, 0, l0], [cx + ux + px, cy + hy, cz + uz + pz, 1, 1, l1], [cx - ux + px, cy + hy, cz - uz + pz, 0, 1, l1], layer);
+    }
+  }
+  function emitBranch(x, y, z, len, ang, up, r, layer) {
+    const ex = x + Math.cos(ang) * len * (1 - up), ez = z + Math.sin(ang) * len * (1 - up), ey = y + len * up;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * 6.2832, b = ((i + 1) / 4) * 6.2832;
+      quad([x + Math.cos(a) * r, y + Math.sin(a) * r, z, 0, 0, 0.6], [x + Math.cos(b) * r, y + Math.sin(b) * r, z, 0.5, 0, 0.6], [ex + Math.cos(b) * r * 0.4, ey + Math.sin(b) * r * 0.4, ez, 0.5, 1, 0.7], [ex + Math.cos(a) * r * 0.4, ey + Math.sin(a) * r * 0.4, ez, 0, 1, 0.7], layer);
+    }
+  }
   function emitTree(t, ox, oy, oz) {
     const x = t.x - ox, z = t.z - oz, y = t.y - oy, h = t.h, seed = Math.floor(t.x * 7 + t.z * 13);
-    const bark = t.birch ? TI.birch_bark : TI.bark, leaf = t.birch ? TI.birch_foliage : TI.foliage;
-    emitPrism(x, z, t.birch ? 0.17 : 0.27, t.birch ? 0.09 : 0.15, y, y + h * 0.72, 5, bark, 0, 0, 0);
-    if (t.birch) {
-      emitBlob(x, y + h * 0.72, z, 1.7, h * 0.34, 1.7, leaf, seed);
-      emitBlob(x + 0.5, y + h * 0.48, z - 0.3, 1.3, 1.2, 1.3, leaf, seed + 40);
-    } else {
-      emitBlob(x, y + h * 0.66, z, 2.7, h * 0.34, 2.7, leaf, seed);
-      emitBlob(x + 1.1, y + h * 0.5, z + 0.7, 1.9, 1.5, 1.9, leaf, seed + 40);
-      emitBlob(x - 1.0, y + h * 0.54, z - 0.8, 1.9, 1.5, 1.9, leaf, seed + 80);
+    const R = (i) => W.hash(seed + i * 31, seed * 7 - i);
+    const type = t.type || (t.birch ? 'birch' : 'broad');
+    if (type === 'pine') {
+      emitPrism(x, z, 0.24, 0.07, y, y + h * 0.97, 6, TI.bark, 0, 0, 0);
+      emitPrism(x, z, 1.35, 0.05, y + h * 0.28, y + h, 6, TI.foliage, 0, 0, 0);
+      const ch = h * 0.78, cy = y + h * 0.24 + ch / 2;
+      emitCard(x, cy, z, 3.9, ch, R(1) * 3.14, 0, TI.leaf_pine, 0.7, 1);
+      emitCard(x, cy, z, 3.9, ch, R(1) * 3.14 + 0.785, 0, TI.leaf_pine, 0.65, 0.95);
+      return;
+    }
+    const spec = {
+      birch: { trunk: 0.72, r0: 0.17, bark: TI.birch_bark, leaf: TI.leaf_birch, rx: 1.7, ry: h * 0.3, cy: 0.7, n: 9, card: 2.0, blob: TI.birch_foliage },
+      poplar: { trunk: 0.45, r0: 0.3, bark: TI.bark, leaf: TI.leaf_broad, rx: 1.15, ry: h * 0.42, cy: 0.6, n: 10, card: 1.9, blob: TI.foliage },
+      broad: { trunk: 0.42, r0: 0.28, bark: TI.bark, leaf: TI.leaf_broad, rx: 2.5, ry: h * 0.3, cy: 0.66, n: 10, card: 2.4, blob: TI.foliage },
+      willow: { trunk: 0.48, r0: 0.34, bark: TI.bark, leaf: TI.leaf_willow, rx: 3.0, ry: h * 0.28, cy: 0.62, n: 11, card: 2.8, blob: TI.foliage },
+    }[type] || { trunk: 0.45, r0: 0.28, bark: TI.bark, leaf: TI.leaf_broad, rx: 2.4, ry: h * 0.3, cy: 0.66, n: 10, card: 2.4, blob: TI.foliage };
+    const lean = (R(2) - 0.5) * 0.4, lx = Math.cos(R(3) * 6.28) * lean, lz = Math.sin(R(3) * 6.28) * lean;
+    const ty = y + h * spec.trunk;
+    emitPrism(x, z, spec.r0, spec.r0 * 0.45, y, ty, 6, spec.bark, 0, 0, 0);
+    const cx = x + lx, cz = z + lz, cy = y + h * spec.cy;
+    for (let i = 0; i < 3; i++) emitBranch(x, y + h * (0.35 + i * 0.1), z, spec.rx * 0.7, R(10 + i) * 6.28, 0.55, spec.r0 * 0.35, spec.bark);
+    emitBlob(cx, cy, cz, spec.rx * 0.62, spec.ry * 0.7, spec.rx * 0.62, spec.blob, seed, 0.85);
+    for (let i = 0; i < spec.n; i++) {
+      const a = R(20 + i) * 6.2832, rr = Math.sqrt(R(40 + i)), up = R(60 + i) * 2 - 1;
+      const px = cx + Math.cos(a) * spec.rx * rr * 0.8, pz = cz + Math.sin(a) * spec.rx * rr * 0.8;
+      const py = cy + up * spec.ry * 0.75 - (type === 'willow' ? spec.card * 0.25 : 0);
+      const light = 0.62 + 0.3 * (up * 0.5 + 0.5) + 0.08 * rr;
+      emitCard(px, py, pz, spec.card, spec.card * (type === 'willow' ? 1.35 : 1), R(80 + i) * 3.14, (R(90 + i) - 0.5) * 0.5, spec.leaf, light * 0.85, light);
+    }
+  }
+
+  // ---------- metal fences: one textured strip per run, posts and rails are in the texture ----------
+  function emitFences(c, ox, oy, oz) {
+    const x0 = c.cx * CS, z0 = c.cz * CS, y0 = TOP - oy, HGT = 2.0;
+    for (const f of c.fences) {
+      const l = wallLight(f.dz, -f.dx);
+      const flush = (t0, t1) => {
+        const e = Math.min(f.len, t1);
+        const ax = f.ax + f.dx * t0 - ox, az = f.az + f.dz * t0 - oz, bx = f.ax + f.dx * e - ox, bz = f.az + f.dz * e - oz;
+        quad([ax, y0, az, t0 / 3, 0, l * 0.82], [bx, y0, bz, e / 3, 0, l * 0.82], [bx, y0 + HGT, bz, e / 3, 1, l], [ax, y0 + HGT, az, t0 / 3, 1, l], TI.fence_metal);
+      };
+      let start = -1, last = -1;
+      for (let t = 0; t <= f.len + 1e-6; t += 0.5) {
+        const px = f.ax + f.dx * t, pz = f.az + f.dz * t;
+        const ok = px >= x0 && px < x0 + CS && pz >= z0 && pz < z0 + CS && W.fenceAllowedAt(f, t);
+        if (ok) { if (start < 0) start = t; last = t; }
+        else if (start >= 0) { flush(start, last + 0.5); start = -1; }
+      }
+      if (start >= 0) flush(start, last + 0.5);
     }
   }
 
@@ -378,6 +432,7 @@
     for (const b of c.blds) if (!b.interior) emitBuilding(b, ox, oy, oz);
     for (const r of c.roofs) emitRoof(r, ox, oy, oz);
     for (const t of c.trees) emitTree(t, ox, oy, oz);
+    emitFences(c, ox, oy, oz);
 
     let mesh = null;
     if (nf) {
@@ -488,6 +543,7 @@
       uniforms: Object.assign({
         uTiles: { value: tilesTex }, uMap: { value: mapTex }, uLayer: { value: TI.ground_detail },
         uBounds: { value: new THREE.Vector4(b.x0, b.z0, b.x1, b.z1) },
+        uPlay: { value: new THREE.Vector4(b.x0 - 400, b.z0 - 400, b.x1 + 400, b.z1 + 400) },
         uTint: { value: new THREE.Color(1, 1, 1) },
       }, U),
       vertexShader: `
@@ -499,11 +555,12 @@
         }`,
       fragmentShader: `
         precision highp sampler2DArray;
-        uniform sampler2DArray uTiles; uniform sampler2D uMap; uniform vec4 uBounds; uniform vec3 uSun; uniform vec3 uTint; uniform float uLayer;
+        uniform sampler2DArray uTiles; uniform sampler2D uMap; uniform vec4 uBounds; uniform vec4 uPlay; uniform vec3 uSun; uniform vec3 uTint; uniform float uLayer;
         ${FOG_GLSL}
         in vec3 vW;
         out vec4 fragColor;
         void main() {
+          if (vW.x < uPlay.x || vW.z < uPlay.y || vW.x > uPlay.z || vW.z > uPlay.w) discard;
           float vDist = length(vW - cameraPosition);
           vec2 uv = (vW.xz - uBounds.xy) / (uBounds.zw - uBounds.xy);
           vec3 base;
@@ -708,6 +765,85 @@
     scene.add(mesh);
   }
 
+  let bgScene = null, terrainMesh = null, bgPlane = null;
+  function buildTerrain(T, coarse) {
+    bgScene = new THREE.Scene();
+    const bin = atob(T.b64), raw = new Int16Array(bin.length / 2);
+    for (let i = 0; i < raw.length; i++) raw[i] = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8);
+    const stepK = coarse ? 2 : 1, w = Math.floor((T.w - 1) / stepK) + 1, hgt = Math.floor((T.h - 1) / stepK) + 1, R = -T.x0;
+    const H = (i, j) => {
+      const v = raw[i * stepK + j * stepK * T.w] * T.scale;
+      const x = T.x0 + i * stepK * T.step, z = T.z0 + j * stepK * T.step;
+      const edge = Math.min(1, (R - Math.max(Math.abs(x), Math.abs(z))) / 1500); // fades to flat at the rim
+      return v * Math.max(0, edge);
+    };
+    const pos = [], col = [], idx = [];
+    const L = [0.45, 0.75, 0.35], ll = Math.hypot(...L);
+    for (let j = 0; j < hgt; j++) for (let i = 0; i < w; i++) {
+      const x = T.x0 + i * stepK * T.step, z = T.z0 + j * stepK * T.step, h = H(i, j);
+      pos.push(x, TOP - 0.3 + h, z);
+      const hx = H(Math.min(w - 1, i + 1), j) - H(Math.max(0, i - 1), j), hz = H(i, Math.min(hgt - 1, j + 1)) - H(i, Math.max(0, j - 1));
+      const d = 2 * stepK * T.step, n = [-hx / d, 1, -hz / d], nl = Math.hypot(...n);
+      const lit = 0.55 + 0.45 * Math.max(0, (n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / (nl * ll));
+      const slope = 1 - n[1] / nl;
+      // Steppe grass low down, darker forest on the hills, bare rock where steep or high.
+      const patch = 0.5 + 0.5 * Math.sin(x * 0.0011 + Math.sin(z * 0.0007) * 2) * Math.cos(z * 0.0013 - x * 0.0004);
+      let c = [0.5, 0.56, 0.31];
+      const forest = Math.min(1, Math.max(0, (h - 25) / 120)) * patch;
+      c = c.map((v, k) => v + ([0.26, 0.38, 0.22][k] - v) * forest);
+      const rock = Math.min(1, Math.max(0, slope * 3.2 - 0.25 + (h - 380) / 300));
+      c = c.map((v, k) => v + ([0.5, 0.47, 0.42][k] - v) * rock);
+      col.push(c[0] * lit, c[1] * lit, c[2] * lit);
+      if (i < w - 1 && j < hgt - 1) { const a = i + j * w; idx.push(a, a + w, a + 1, a + 1, a + w, a + w + 1); }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aColor', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx);
+    const mat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: Object.assign({ uTiles: { value: tilesTex }, uLayer: { value: TI.ground_detail }, uTint: groundMat.uniforms.uTint }, U),
+      vertexShader: `
+        in vec3 aColor; out vec3 vC; out vec3 vW;
+        void main() { vC = aColor; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+      fragmentShader: `
+        precision highp sampler2DArray;
+        uniform sampler2DArray uTiles; uniform float uLayer; uniform vec3 uSun; uniform vec3 uTint;
+        ${FOG_GLSL}
+        in vec3 vC; in vec3 vW; out vec4 fragColor;
+        void main() {
+          float broad = texture(uTiles, vec3(vW.xz * 0.0083, uLayer)).g, mid = texture(uTiles, vec3(vW.zx * 0.11, uLayer)).r;
+          vec3 c = vC * uTint * (0.86 + 0.28 * broad) * (0.9 + 0.2 * mid);
+          fragColor = vec4(applyFog(c * uSun, length(vW - cameraPosition)), 1.0);
+        }`,
+    });
+    terrainMesh = new THREE.Mesh(geo, mat);
+    terrainMesh.frustumCulled = false;
+    bgScene.add(terrainMesh);
+    // Beyond the rim: flat land out to the horizon.
+    const pg = new THREE.PlaneGeometry(200000, 200000).rotateX(-Math.PI / 2);
+    pg.setAttribute('aColor', new THREE.Float32BufferAttribute(new Array(pg.attributes.position.count).fill([0.5, 0.56, 0.31]).flat(), 3));
+    bgPlane = new THREE.Mesh(pg, mat);
+    bgPlane.position.y = TOP - 4;
+    bgPlane.frustumCulled = false;
+    bgScene.add(bgPlane);
+  }
+  // Two passes: the background with a long view distance, then the playable world with precise depth.
+  function render(renderer, scene, camera, sky) {
+    const near = camera.near, far = camera.far;
+    renderer.clear();
+    if (bgScene) {
+      camera.updateMatrixWorld();
+      camera.near = 5; camera.far = 120000; camera.updateProjectionMatrix();
+      if (sky && sky.parent !== bgScene) bgScene.add(sky);
+      if (bgPlane) { bgPlane.position.x = camera.position.x; bgPlane.position.z = camera.position.z; }
+      renderer.render(bgScene, camera);
+      camera.near = near; camera.far = far; camera.updateProjectionMatrix();
+      renderer.clearDepth();
+    }
+    renderer.render(scene, camera);
+  }
+
   function setCameraCenter(x, z) {
     if (farMat) farMat.uniforms.uHoleC.value.set(x, z);
     if (groundMesh) { groundMesh.position.x = x; groundMesh.position.z = z; }
@@ -718,7 +854,11 @@
     update, ensureChunk, blockAt, solidAt, groundBelow, buildGround, buildFlats, buildFar, setCameraCenter, chunks, closedDoors, doorKey,
     setRadius(r) { radius = r; },
     getRadius() { return radius; },
-    setBounds(b) { activeBounds = b; lastCx = 1e9; },
+    setBounds(b) {
+      activeBounds = b; lastCx = 1e9;
+      if (groundMat) groundMat.uniforms.uPlay.value.set(b.x0 - 400, b.z0 - 400, b.x1 + 400, b.z1 + 400);
+    },
+    buildTerrain, render, getBgScene: () => bgScene,
     setGroundTint(r, g, b) { if (groundMat) groundMat.uniforms.uTint.value.setRGB(r, g, b); },
     pendingCount() { return pending.length; },
   };

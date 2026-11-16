@@ -167,3 +167,5 @@ body.touch #bigmap-help { left: 8px; bottom: 8px; transform: none; width: 170px;
 body.in-cut .t-btn { display: none; }
 body.in-cut .t-use, body.in-cut .t-pause { display: block; }
 body.in-cut #t-stick { display: none; }
+
+.t-cam { right: 112px; top: 114px; }

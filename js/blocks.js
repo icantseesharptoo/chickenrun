@@ -247,6 +247,52 @@
     }
   }, 0x4f8c3a);
 
+  // Corrugated metal fence, as on private houses in Akyar: green profiled sheet on brown posts and rails.
+  // One tile = one 3 m panel, 2 m high.
+  tile('fence_metal', (set, fine) => {
+    const n = makeNoise(16);
+    each(fine, (x, y) => {
+      if (x < 2) return shade(0x6b3a26, 0.9 + n(x, y) * 0.15);
+      if ((y >= 10 && y < 13) || (y >= 54 && y < 57)) return shade(0x6b3a26, 0.95 + n(x, y) * 0.1);
+      const r = x % 5;
+      return shade(0x1f6b45, (r === 0 ? 0.72 : r === 1 ? 1.12 : r === 2 ? 1.02 : 0.92) * (0.95 + n(x, y) * 0.08) - (y < 1 ? 0.1 : 0));
+    });
+  });
+  tile('sofa', (set, fine) => { const n = fbm(); each(fine, (x, y) => shade(0x7a5446, (y % 32 < 2 ? 0.8 : 1) * (0.9 + n(x, y) * 0.18))); });
+  tile('sofa_side', (set, fine) => { const n = fbm(); each(fine, (x, y) => (y < 20 ? shade(0x8a6152, 0.92 + n(x, y) * 0.15) : y > 56 ? 0x3e2a20 : shade(0x7a5446, 0.86 + n(x, y) * 0.15))); });
+  tile('tv', (set) => { rect(set, 0, 0, 16, 16, 0x5e4630); rect(set, 1, 2, 14, 9, 0x111316); rect(set, 2, 3, 12, 7, 0x1e2a36); rect(set, 3, 4, 5, 2, 0x34485c); rect(set, 2, 12, 12, 3, 0x4a3726); });
+  tile('sink_top', (set, fine) => { mottled(0xdcd6c8, 0.03)(set, fine); rect(set, 3, 3, 10, 8, 0xa9b1b5); rect(set, 4, 4, 8, 6, 0xc7ced1); set(8, 2, 0x8a9296); });
+
+  // Leaf clusters for tree crowns: drawn as crossed cards, so crowns look leafy rather than solid.
+  const leafCard = (dark, light, leaves, size, droop) => (set, fine) => {
+    for (let i = 0; i < leaves; i++) {
+      const a = rnd() * 6.283, r = Math.sqrt(rnd()) * 27;
+      let cx = 32 + Math.cos(a) * r, cy = 32 + Math.sin(a) * r * (droop ? 1.15 : 0.9);
+      const col = mix(dark, light, Math.min(1, rnd() * 0.7 + (1 - cy / 64) * 0.5));
+      const len = size * (0.7 + rnd() * 0.6), ang = rnd() * 6.283;
+      if (droop) {
+        for (let k = 0; k < len * 3; k++) { fine(cx, cy, col); cx += (rnd() - 0.5) * 0.8; cy += 0.7; }
+      } else {
+        for (let t = -len; t <= len; t += 0.5) for (let w = -len * 0.45; w <= len * 0.45; w += 0.5) {
+          const k = 1 - Math.abs(t) / len;
+          if (Math.abs(w) <= len * 0.45 * k + 0.4) fine(cx + Math.cos(ang) * t - Math.sin(ang) * w, cy + Math.sin(ang) * t + Math.cos(ang) * w, col);
+        }
+      }
+    }
+  };
+  tile('leaf_broad', leafCard(0x2e5223, 0x6b9940, 150, 2.8, false), 0x3e6a2c);
+  tile('leaf_birch', leafCard(0x4c7a2c, 0x9cc252, 190, 2.2, false), 0x6a9a3a);
+  tile('leaf_willow', leafCard(0x4f7a3a, 0x9cb65e, 120, 3.2, true), 0x6a9048);
+  tile('leaf_pine', (set, fine) => {
+    for (let b = 0; b < 9; b++) {
+      const y0 = 8 + b * 6 + rnd() * 3, half = 6 + (b / 9) * 22;
+      for (let x = 32 - half; x <= 32 + half; x += 0.5) for (let k = 0; k < 3; k++) {
+        const y = y0 + Math.abs(x - 32) * 0.35 + rnd() * 2;
+        fine(x, y, mix(0x1f3d26, 0x4f7a45, rnd()));
+      }
+    }
+  }, 0x29492e);
+
   // ---------- Block definitions ----------
   const B = {};
   const defs = [null];
@@ -280,6 +326,9 @@
   block('CHEST', { top: 'chest', side: 'chest', bottom: 'chest' });
   block('TROUGH', { top: 'trough_top', side: 'trough', bottom: 'trough' });
   block('FENCE', { top: 'empty', bottom: 'empty', side: 'fence', opaque: false, cut: true });
+  block('SOFA', { top: 'sofa', side: 'sofa_side', bottom: 'sofa' });
+  block('TV', { top: 'counter_top', side: 'tv', bottom: 'tv' });
+  block('SINK', { top: 'sink_top', side: 'counter', bottom: 'counter' });
   const plant = (n, t, h) => block(n, { all: t, solid: false, opaque: false, cross: true, plantH: h });
   plant('GRASS_PLANT', 'grass_plant', 0.45); plant('DRY_PLANT', 'dry_plant', 0.45);
   plant('FLOWER_BLUE', 'flower_blue', 0.5); plant('FLOWER_WHITE', 'flower_white', 0.5); plant('FLOWER_YELLOW', 'flower_yellow', 0.5); plant('CROP', 'crop', 0.95);

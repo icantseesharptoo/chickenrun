@@ -166,7 +166,7 @@ def main():
         check('walking buttons fit and do not overlap', n >= 7 and not bad, f'{n} buttons {bad}')
 
         # Joystick: real drag with the left thumb.
-        js(f"(()=>{{const g={G},h=G.sites.home,p=h.pos(14,0,12);g.teleport(p.x,p.y,p.z);const q=h.pos(14,0,2);g.setYawPitch(Math.atan2(-(q.x-p.x),-(q.z-p.z)),0);g.P.vx=g.P.vy=g.P.vz=0;}})()".replace('G.sites', 'window.G.sites'))
+        js(f"(()=>{{const g={G},h=G.sites.home,p=h.pos(19.5,0,20);g.teleport(p.x,p.y,p.z);const q=h.pos(19.5,0,10);g.setYawPitch(Math.atan2(-(q.x-p.x),-(q.z-p.z)),0);g.P.vx=g.P.vy=g.P.vz=0;}})()".replace('G.sites', 'window.G.sites'))
         time.sleep(0.5)
         x0, z0 = js(f'[{G}.P.x,{G}.P.z]')
         touch('touchStart', [(1, 110, 300)])
@@ -192,7 +192,7 @@ def main():
         check('releasing the thumbs stops the joystick', js('window.G.touch.stick.y') == 0 and js('window.G.touch.stick.x') == 0)
 
         # USE button: take grain from the sack.
-        js(f"(()=>{{const g={G},h=window.G.sites.home,p=h.pos(24.5,0,23.5);g.teleport(p.x,p.y,p.z);g.lookAt(h.sack);window.G.game.doors.find(d=>d.id==='shed');}})()")
+        js(f"(()=>{{const g={G},h=window.G.sites.home,p=h.pos(18.5,0,29.5);g.teleport(p.x,p.y,p.z);g.lookAt(h.sack);window.G.game.doors.find(d=>d.id==='shed');}})()")
         ready = wait("document.querySelector('.t-use').classList.contains('ready')", 5)
         check('USE button lights up when something is usable', ready, js("document.querySelector('#prompt').textContent"))
         shot('d_use')
@@ -260,11 +260,11 @@ def main():
         cam_dist = f'Math.hypot({G}.camera.position.x-{G}.S().cx,{G}.camera.position.z-{G}.S().cz)'
         d0 = js(cam_dist)
         tap_el('.t-view')
-        check('VIEW moves the camera outside the car', wait(f'{cam_dist}>{d0}+1', 5), f'{d0:.1f} -> {js(cam_dist):.1f} m')
+        check('VIEW switches between chase and driver view', wait(f'Math.abs({cam_dist}-({d0}))>1', 5), f'{d0:.1f} -> {js(cam_dist):.1f} m')
         time.sleep(0.6)
         shot('g_chase')
         tap_el('.t-view')
-        check('VIEW returns to the driver seat', wait(f'{cam_dist}<1.5', 5))
+        check('VIEW switches back', wait(f'Math.abs({cam_dist}-({d0}))<0.6', 5))
         tap_el('.t-exit')
         check('EXIT gets out of the car', wait(f'!{G}.S().inCar', 3))
         check('walking buttons come back', wait("getComputedStyle(document.querySelector('.t-use')).display!=='none'", 3))

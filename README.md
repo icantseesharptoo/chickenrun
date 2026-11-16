@@ -10,6 +10,7 @@ Wake up in your house, feed the chickens and cats, drive to work, buy food at th
 | --- | --- | --- | --- |
 | W A S D | Walk | Shift | Run |
 | Mouse | Look | Space | Jump |
+| V | Third / first person | Wheel | Camera distance |
 | E | Interact, get in or out of the car | Q | Eat food |
 | M | Map (scroll to zoom) | N | Sound on/off |
 
@@ -24,7 +25,7 @@ Follow the quest panel at the top left. Progress saves automatically in your bro
 The world is about 5 × 6 km at real scale and deliberately flat, generated from real data:
 
 - 2,309 building footprints, the streets with their real names, the Tanalyk river, forests and land use, from OpenStreetMap
-- your home is on Akmulla Street, and your job and the shop are in and near the town centre; the shop and the parcel depot use real building footprints, with invented interiors and generic signs
+- your home is the real house at Akmulla St 76, laid out from the owner's floor plan, with a red Lada Granta-style car in the yard; and your job and the shop are in and near the town centre; the shop and the parcel depot use real building footprints, with invented interiors and generic signs
 - street names appear in English, romanized from the Russian names in OpenStreetMap
 
 The exact lot, the homestead layout, the airport, the shop and depot roles, and most building colours and heights are invented. The airport does not exist in real life. OpenStreetMap records where buildings are, not what they look like.
@@ -55,8 +56,9 @@ After a minute or two the game is live at `https://<your-username>.github.io/<re
 | `js/touch.js` | Phone controls: joystick, look, buttons, pinch zoom |
 | `js/game.js` | Player, driving, flights, taxi, quests, shop, work, save/load, prices, country list |
 | `data/akyar.js` | Baked map data (generated) |
-| `data_src/` | Raw map download |
+| `data_src/` | Raw map and elevation downloads |
 | `tools/bake_map.py` | Rebuilds `data/akyar.js` from `data_src/` |
+| `tools/bake_terrain.py` | Rebuilds the hills in `data/terrain.js` |
 | `tests/` | Scripted playthrough and screenshot presets |
 | `docs/ASSETS.md` | Art, sound and reference material wanted |
 
@@ -82,4 +84,5 @@ python -I tests/android_test.py http://127.0.0.1:8123/ <folder-for-screenshots>
 ## Credits and licences
 
 - **Map data** © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, under the [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/). `data/akyar.js` is a derived database and stays under the ODbL.
+- **Elevation** for the hills on the horizon: [Mapzen Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS Open Data, which include SRTM data from NASA. Heights are exaggerated 5× and pulled closer, so the gentle real hills read as mountains.
 - **[three.js](https://threejs.org/)** r159, MIT licence, see `vendor/THREE_LICENSE.txt`.

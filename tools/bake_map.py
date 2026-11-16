@@ -3,11 +3,12 @@
 
 Usage (run from the project root):
     python -I tools/bake_map.py data_src data/akyar.js
-    python -I tools/bake_map.py data_src data/akyar.js --home-street "улица Акмуллы"
+    python -I tools/bake_map.py data_src data/akyar.js --home-way 777451118
     python -I tools/bake_map.py data_src data/akyar.js --home-lat 51.866 --home-lon 58.208
 
---home-street puts the homestead on a named street, away from the town centre (default: Akmulla St).
---home-lat / --home-lon moves it to (or near) a real spot instead.
+--home-way is the OpenStreetMap id of the real house; the default is Akmulla St 76.
+The homestead lot is laid out around it, with its gate on the street.
+--home-lat / --home-lon place it near a coordinate instead.
 The airport is invented: it is placed on the most open land a few hundred metres from the homestead.
 
 Map data (c) OpenStreetMap contributors, ODbL 1.0.
@@ -70,6 +71,7 @@ def main():
     ap.add_argument('--home-lat', type=float)
     ap.add_argument('--home-lon', type=float)
     ap.add_argument('--home-street', default='улица Акмуллы')
+    ap.add_argument('--home-way', default='777451118')  # Akmulla St 76
     args = ap.parse_args()
 
     root = ET.parse(os.path.join(args.src, 'map.osm')).getroot()
@@ -94,7 +96,7 @@ def main():
                     lv = int(float(tags.get('building:levels', 0)))
                 except ValueError:
                     lv = 0
-                blds.append(dict(t=tags['building'], n=name, a=tags.get('amenity', ''), s=tags.get('shop', ''), l=lv, p=pts))
+                blds.append(dict(id=el.get('id'), t=tags['building'], n=name, a=tags.get('amenity', ''), s=tags.get('shop', ''), l=lv, p=pts))
             continue
         if 'highway' in tags and tags['highway'] in ROAD_W:
             if any(in_bounds(x, z, 40) for x, z in pts):
@@ -235,68 +237,6 @@ def main():
     def seg_near(s, cx, cz, m):
         return min(s[0][0], s[1][0]) - m < cx < max(s[0][0], s[1][0]) + m and min(s[0][1], s[1][1]) - m < cz < max(s[0][1], s[1][1]) + m
 
-    street_segs = []
-    if args.home_lat is not None:
-        hx, hz = project(args.home_lat, args.home_lon)
-        search_r, step_r, targets = 260, 10, [(hx, hz)]
-    else:
-        street_segs = [s for s in all_segs if s[3]['n'] == args.home_street]
-        if not street_segs:
-            sys.exit('no street called ' + args.home_street)
-        targets = []
-        for a, b, _, _ in street_segs:  # points every 40 m along the street, since vertices can be far apart
-            n = max(1, int(math.dist(a, b) // 40))
-            targets += [(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n) for i in range(n + 1)]
-        search_r, step_r = int(half) + 16, 6
-    best, best_score = None, 1e18
-    tried = set()
-    for tx, tz in targets:
-        for ox in range(-search_r, search_r + 1, step_r):
-            for oz in range(-search_r, search_r + 1, step_r):
-                cx, cz = round((tx + ox) / 2) * 2, round((tz + oz) / 2) * 2
-                if (cx, cz) in tried or not in_bounds(cx, cz, -80):
-                    continue
-                tried.add((cx, cz))
-                near_segs = [s for s in all_segs if seg_near(s, cx, cz, 70)]
-                if not near_segs:
-                    continue
-                dr = min(seg_dist(cx, cz, s[0], s[1]) - s[2] for s in near_segs)
-                if dr < half * 1.45 + 1 or dr > half + 22:
-                    continue
-                town_penalty = 0
-                if street_segs:
-                    # The lot must front this street, and it stays out of the centre so that driving is worthwhile.
-                    ds = min(seg_dist(cx, cz, s[0], s[1]) - s[2] for s in street_segs)
-                    if ds > half + 14 or ds > dr + 0.5:
-                        continue
-                    town_penalty = max(0, 1000 - math.dist((cx, cz), town)) * 2
-                overlap = 0
-                for b in blds:
-                    bx, bz = centroid(b['p'])
-                    if abs(bx - cx) < half + 14 and abs(bz - cz) < half + 14:
-                        if any(abs(p[0] - cx) < half + 3 and abs(p[1] - cz) < half + 3 for p in b['p']) or (abs(bx - cx) < half + 3 and abs(bz - cz) < half + 3):
-                            overlap += b['area'] if b['k'] not in ('shop', 'work') else 1e7
-                rd = min((seg_dist(cx, cz, a, b) for a, b in river_segs), default=1e9)
-                if rd < half + 26:
-                    continue
-                score = overlap * 10 + rd * 0.05 + town_penalty + (0 if street_segs else math.hypot(cx - tx, cz - tz) * 0.3)
-                if score < best_score:
-                    best_score, best = score, (cx, cz)
-    if best is None:
-        sys.exit('could not find a homestead lot')
-    hx, hz = best
-    x_0, z_0 = hx - SITE // 2, hz - SITE // 2
-    x_1, z_1 = x_0 + SITE, z_0 + SITE
-    removed = []
-    kept = []
-    for b in blds:
-        cx, cz = centroid(b['p'])
-        hit = (x_0 - 3 <= cx <= x_1 + 3 and z_0 - 3 <= cz <= z_1 + 3) or any(x_0 - 3 <= p[0] <= x_1 + 3 and z_0 - 3 <= p[1] <= z_1 + 3 for p in b['p'])
-        (removed if hit else kept).append(b)
-    blds = kept
-    # gate faces the nearest road; a dirt driveway links them
-    near_all = street_segs or [s for s in all_segs if seg_near(s, hx, hz, 120)]
-
     def closest_on(seg, px, pz):
         a, b = seg[0], seg[1]
         dx, dz = b[0] - a[0], b[1] - a[1]
@@ -304,17 +244,52 @@ def main():
         t = max(0, min(1, ((px - a[0]) * dx + (pz - a[1]) * dz) / l2))
         return a[0] + t * dx, a[1] + t * dz
 
-    gates = dict(n=(hx, z_0), s=(hx, z_1), w=(x_0, hz), e=(x_1, hz))
-    gate, g_best, drive_end, road_name = None, 1e9, None, ''
-    for side, (gx, gz) in gates.items():
-        for s in near_all:
-            q = closest_on(s, gx, gz)
-            d = math.dist(q, (gx, gz))
-            # the road must lie outward of this side
-            outward = {'n': q[1] < gz, 's': q[1] > gz, 'w': q[0] < gx, 'e': q[0] > gx}[side]
-            if outward and d < g_best:
-                gate, g_best, drive_end, road_name = side, d, q, s[3]['n']
-    gx, gz = gates[gate]
+    # ---------- homestead: a lot laid out around the real house ----------
+    LOT_W, LOT_D = 26, 56          # along the street, and back from it
+    HOUSE_U, HOUSE_V = 7.5, 13.5   # centre of the planned house in lot coordinates
+    GATE_U = 19.5                  # car gate
+    best_score = 0
+    if args.home_lat is not None:
+        hc = project(args.home_lat, args.home_lon)
+        home_b = None
+    else:
+        home_b = next((b for b in blds if b.get('id') == args.home_way), None)
+        if home_b is None:
+            sys.exit('no building with way id ' + str(args.home_way))
+        hc = centroid(home_b['p'])
+    street_segs = [s_ for s_ in all_segs if s_[3]['n'] == args.home_street and seg_near(s_, hc[0], hc[1], 200)]
+    if not street_segs:
+        street_segs = [s_ for s_ in all_segs if seg_near(s_, hc[0], hc[1], 150)]
+    q, rs = min(((closest_on(s_, *hc), s_) for s_ in street_segs), key=lambda t: math.dist(t[0], hc))
+    dx, dz = q[0] - hc[0], q[1] - hc[1]
+    if abs(dx) > abs(dz):
+        gate = 'w' if dx < 0 else 'e'
+    else:
+        gate = 'n' if dz < 0 else 's'
+    edge = rs[2] + 1.5
+    if gate == 'w':
+        x_0, z_0 = q[0] + edge, hc[1] - LOT_W + HOUSE_U
+    elif gate == 'e':
+        x_0, z_0 = q[0] - edge - LOT_D, hc[1] - HOUSE_U
+    elif gate == 'n':
+        x_0, z_0 = hc[0] - HOUSE_U, q[1] + edge
+    else:
+        x_0, z_0 = hc[0] - LOT_W + HOUSE_U, q[1] - edge - LOT_D
+    x_0, z_0 = round(x_0), round(z_0)
+    if gate in 'ns':
+        x_1, z_1 = x_0 + LOT_W, z_0 + LOT_D
+    else:
+        x_1, z_1 = x_0 + LOT_D, z_0 + LOT_W
+    removed, kept = [], []
+    for b in blds:
+        cx, cz = centroid(b['p'])
+        hit = (x_0 - 1 <= cx <= x_1 + 1 and z_0 - 1 <= cz <= z_1 + 1) or any(x_0 + 1 <= p[0] <= x_1 - 1 and z_0 + 1 <= p[1] <= z_1 - 1 for p in b['p'])
+        (removed if hit else kept).append(b)
+    blds = kept
+    # Gate position in world coordinates, then a short drive to the street.
+    gx, gz = {'w': (x_0, z_0 + LOT_W - GATE_U), 'e': (x_0 + LOT_D, z_0 + GATE_U), 'n': (x_0 + GATE_U, z_0), 's': (x_0 + LOT_W - GATE_U, z_0 + LOT_D)}[gate]
+    drive_end = closest_on(rs, gx, gz)
+    road_name = rs[3]['n']
     roads.append(dict(t='service', n='', s='dirt', p=[(gx, gz), drive_end]))
 
     # ---------- airport: invented, on the most open land a few hundred metres from home ----------
@@ -445,7 +420,7 @@ def main():
         pois=pois,
         named=named,
         bridges=bridges,
-        home=dict(x=x_0, z=z_0, size=SITE, gate=gate, street=road_name),
+        home=dict(x=x_0, z=z_0, w=LOT_W, d=LOT_D, gate=gate, street=road_name, way=args.home_way, number='76' if args.home_way == '777451118' else ''),
         airport=dict(x0=ax0, z0=az0, x1=ax1, z1=az1, side=ap_side),
     )
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
@@ -461,7 +436,7 @@ def main():
         kinds[b['k']] = kinds.get(b['k'], 0) + 1
     print('kinds', kinds)
     print('landuse', lw, lh, 'rle', len(rle))
-    print('home', data['home'], 'score', round(best_score, 1))
+    print('home', data['home'], 'house area', round(home_b['area']) if home_b else '-', 'removed', [(b.get('id'), round(b['area'])) for b in removed])
     print('shop', shop['n'], round(shop['area']), [round(v) for v in centroid(shop['p'])])
     print('work', work['n'], round(work['area']), [round(v) for v in centroid(work['p'])])
     print('bridges', bridges[:6])

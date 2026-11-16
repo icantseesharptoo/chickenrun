@@ -77,99 +77,183 @@
   const make = (fn) => { const b = new Builder(); fn(b); return b.mesh(); };
 
   function chicken(variant) {
-    const c = [0xece7da, 0xbb7b40, 0x3f3a37, 0xdcc08f][variant % 4];
-    const wing = variant % 4 === 2 ? 0x57504b : c === 0xece7da ? 0xd8d2c2 : 0xa06a36;
+    const c = [0xece7da, 0xb5703a, 0x3f3a37, 0xd9bb88][variant % 4];
+    const wing = variant % 4 === 2 ? 0x55504b : c === 0xece7da ? 0xdcd6c6 : 0x8e5a2e;
+    const tailC = variant % 4 === 1 ? 0x2c3a2a : variant % 4 === 2 ? 0x1f2422 : wing;
     const g = new THREE.Group();
     g.add(make((m) => {
-      m.ball(0, 0.36, 0.04, 0.34, 0.32, 0.46, c);
-      m.ball(0, 0.5, 0.26, 0.15, 0.24, 0.16, c, 6, 4);
-      m.ball(0.17, 0.37, 0.06, 0.07, 0.2, 0.32, wing, 6, 4);
-      m.ball(-0.17, 0.37, 0.06, 0.07, 0.2, 0.32, wing, 6, 4);
+      m.ball(0, 0.37, 0.05, 0.32, 0.3, 0.44, c, 10, 6);           // body
+      m.ball(0, 0.36, -0.12, 0.27, 0.27, 0.24, c, 9, 5);           // breast
+      m.ball(0, 0.44, 0.2, 0.2, 0.2, 0.18, c, 8, 5);               // back
+      for (let i = 0; i < 5; i++) {                                // tail feathers, fanned up and back
+        const a = -0.5 + i * 0.25, x = Math.sin(a) * 0.05;
+        m.hull([[x - 0.015, 0.42, 0.22], [x + 0.015, 0.42, 0.22], [x + 0.015, 0.42, 0.3], [x - 0.015, 0.42, 0.3], [x * 3 - 0.012, 0.66 - Math.abs(a) * 0.08, 0.34], [x * 3 + 0.012, 0.66 - Math.abs(a) * 0.08, 0.34], [x * 3 + 0.012, 0.64 - Math.abs(a) * 0.08, 0.42], [x * 3 - 0.012, 0.64 - Math.abs(a) * 0.08, 0.42]], tailC);
+      }
+      for (const s of [1, -1]) {                                   // wings in two layers
+        m.ball(s * 0.15, 0.38, 0.07, 0.07, 0.19, 0.34, wing, 7, 4);
+        m.ball(s * 0.155, 0.33, 0.14, 0.05, 0.12, 0.2, tailC, 6, 3);
+      }
+      m.tube(0, 0.5, -0.12, 0.07, 0.055, 0.14, 'y', c, 8, false);  // neck
     }));
     const head = new THREE.Group();
-    head.position.set(0, 0.46, -0.17);
+    head.position.set(0, 0.52, -0.15);
     head.add(make((m) => {
-      m.ball(0, 0.13, -0.03, 0.17, 0.2, 0.17, c, 7, 4);
-      m.tube(0, 0.14, -0.15, 0.04, 0.005, 0.1, 'z', 0xdc9a2e, 5, false);
-      m.ball(0, 0.25, -0.03, 0.04, 0.1, 0.13, 0xbf3a30, 5, 3);
-      m.ball(0, 0.06, -0.12, 0.04, 0.08, 0.04, 0xbf3a30, 5, 3);
-      m.ball(0.08, 0.17, -0.09, 0.03, 0.04, 0.04, 0x141414, 5, 3);
-      m.ball(-0.08, 0.17, -0.09, 0.03, 0.04, 0.04, 0x141414, 5, 3);
+      m.ball(0, 0.1, -0.03, 0.14, 0.15, 0.15, c, 8, 5);
+      m.tube(0, 0.09, -0.13, 0.002, 0.03, 0.08, 'z', 0xd9a33a, 6, false); // beak
+      for (let i = 0; i < 4; i++) m.ball(0, 0.18 + Math.sin(i * 1.1) * 0.012, -0.08 + i * 0.03, 0.03, 0.06, 0.04, 0xc0332b, 5, 3); // comb
+      m.ball(0.012, 0.03, -0.1, 0.025, 0.05, 0.025, 0xc0332b, 5, 3); m.ball(-0.012, 0.03, -0.1, 0.025, 0.05, 0.025, 0xc0332b, 5, 3); // wattles
+      m.ball(0.06, 0.12, -0.08, 0.02, 0.025, 0.02, 0x141414, 5, 3); m.ball(-0.06, 0.12, -0.08, 0.02, 0.025, 0.02, 0x141414, 5, 3);
+      m.ball(0.066, 0.1, -0.04, 0.012, 0.03, 0.03, 0xc0332b, 4, 2); m.ball(-0.066, 0.1, -0.04, 0.012, 0.03, 0.03, 0xc0332b, 4, 2); // earlobes
     }));
     g.add(head);
     const leg = () => {
-      const l = new THREE.Group(); l.position.y = 0.21;
-      l.add(make((m) => { m.tube(0, -0.1, 0, 0.018, 0.024, 0.21, 'y', 0xdc9a2e, 5, false); m.box(0, -0.2, -0.04, 0.09, 0.02, 0.13, 0xdc9a2e); }));
+      const l = new THREE.Group(); l.position.y = 0.24;
+      l.add(make((m) => {
+        m.ball(0, 0.0, 0.0, 0.07, 0.08, 0.08, wing, 6, 3);
+        m.tube(0, -0.12, 0.01, 0.014, 0.018, 0.22, 'y', 0xd9a33a, 6, false);
+        for (const a of [-0.45, 0, 0.45]) m.hull([[-0.006, -0.235, 0.01], [0.006, -0.235, 0.01], [0.006, -0.235, 0.02], [-0.006, -0.235, 0.02], [Math.sin(a) * 0.08 - 0.005, -0.24, -Math.cos(a) * 0.08], [Math.sin(a) * 0.08 + 0.005, -0.24, -Math.cos(a) * 0.08], [Math.sin(a) * 0.08 + 0.005, -0.23, -Math.cos(a) * 0.08 + 0.01], [Math.sin(a) * 0.08 - 0.005, -0.23, -Math.cos(a) * 0.08 + 0.01]], 0xd9a33a);
+        m.hull([[-0.005, -0.235, 0.0], [0.005, -0.235, 0.0], [0.005, -0.235, 0.01], [-0.005, -0.235, 0.01], [-0.004, -0.24, 0.05], [0.004, -0.24, 0.05], [0.004, -0.232, 0.05], [-0.004, -0.232, 0.05]], 0xd9a33a);
+      }));
       return l;
     };
     const l1 = leg(), l2 = leg();
-    l1.position.x = 0.08; l2.position.x = -0.08;
+    l1.position.x = 0.07; l2.position.x = -0.07;
     g.add(l1, l2);
     g.userData = { head, legs: [l1, l2] };
     return g;
   }
 
   function cat(variant) {
-    const palettes = [[0xc98a48, 0xebdcc4], [0x6f6f72, 0xc4c4c6], [0x2e2d2f, 0xe8e8e8]];
-    const [c, belly] = palettes[variant % 3];
+    const palettes = [[0xc98a48, 0xefe2cc, 0x9c6430], [0x7a7a7d, 0xd4d4d6, 0x55555a], [0x2e2d2f, 0xeeeeee, 0x1c1b1d]];
+    const [c, belly, stripe] = palettes[variant % 3];
     const g = new THREE.Group();
     g.add(make((m) => {
-      m.ball(0, 0.33, 0.06, 0.25, 0.25, 0.66, c);
-      m.ball(0, 0.26, 0.04, 0.19, 0.13, 0.48, belly, 6, 4);
+      m.ball(0, 0.31, 0.06, 0.24, 0.23, 0.58, c, 10, 6);          // body
+      m.ball(0, 0.32, -0.18, 0.23, 0.25, 0.22, c, 9, 5);           // shoulders / chest
+      m.ball(0, 0.27, -0.2, 0.15, 0.16, 0.12, belly, 7, 4);        // white bib
+      m.ball(0.075, 0.3, 0.26, 0.13, 0.2, 0.2, c, 8, 4);           // haunches
+      m.ball(-0.075, 0.3, 0.26, 0.13, 0.2, 0.2, c, 8, 4);
+      m.ball(0, 0.22, 0.05, 0.17, 0.08, 0.44, belly, 7, 4);        // belly
+      if (variant % 3 === 0) for (let i = 0; i < 4; i++) m.ball(0, 0.425, -0.08 + i * 0.11, 0.2, 0.025, 0.04, stripe, 6, 2); // tabby stripes
     }));
     const head = new THREE.Group();
-    head.position.set(0, 0.42, -0.25);
+    head.position.set(0, 0.43, -0.27);
     head.add(make((m) => {
-      m.ball(0, 0.07, -0.06, 0.26, 0.22, 0.23, c);
-      m.tube(0.08, 0.23, -0.03, 0.05, 0.002, 0.13, 'y', c, 4, false);
-      m.tube(-0.08, 0.23, -0.03, 0.05, 0.002, 0.13, 'y', c, 4, false);
-      m.ball(0, 0.02, -0.16, 0.12, 0.08, 0.06, belly, 6, 3);
-      m.ball(0, 0.05, -0.19, 0.03, 0.025, 0.02, 0xcf7a88, 4, 3);
-      m.ball(0.065, 0.1, -0.165, 0.045, 0.04, 0.02, 0x88b83f, 5, 3);
-      m.ball(-0.065, 0.1, -0.165, 0.045, 0.04, 0.02, 0x88b83f, 5, 3);
+      m.ball(0, 0.06, -0.04, 0.22, 0.19, 0.19, c, 10, 6);
+      m.ball(0.05, 0.02, -0.11, 0.09, 0.07, 0.07, belly, 6, 4); m.ball(-0.05, 0.02, -0.11, 0.09, 0.07, 0.07, belly, 6, 4); // muzzle
+      m.ball(0, 0.045, -0.145, 0.03, 0.022, 0.02, 0xcf7a88, 5, 3);   // nose
+      for (const s of [1, -1]) {
+        m.tube(s * 0.075, 0.175, -0.02, 0.05, 0.003, 0.11, 'y', c, 4, false);          // ear
+        m.tube(s * 0.075, 0.17, -0.032, 0.03, 0.002, 0.08, 'y', 0xd99aa5, 4, false);   // inner ear
+        m.ball(s * 0.055, 0.085, -0.12, 0.05, 0.045, 0.02, 0x9fc24a, 6, 3);            // eye
+        m.ball(s * 0.055, 0.085, -0.131, 0.012, 0.038, 0.01, 0x111111, 4, 2);          // slit pupil
+        for (const dy of [-0.012, 0.004]) m.box(s * 0.11, 0.025 + dy, -0.12, 0.12, 0.004, 0.004, 0xf2f2f2); // whiskers
+      }
     }));
     g.add(head);
-    const tail = new THREE.Group();
-    tail.position.set(0, 0.4, 0.36);
-    tail.add(make((m) => m.tube(0, 0.18, 0.02, 0.04, 0.022, 0.38, 'y', c, 5, false)));
-    tail.rotation.x = 0.45;
-    g.add(tail);
-    const legs = [[0.08, -0.17], [-0.08, -0.17], [0.08, 0.28], [-0.08, 0.28]].map(([x, z]) => {
-      const l = new THREE.Group(); l.position.set(x, 0.23, z);
-      l.add(make((m) => { m.tube(0, -0.11, 0, 0.03, 0.038, 0.23, 'y', belly, 5, false); m.ball(0, -0.215, -0.012, 0.07, 0.035, 0.09, belly, 5, 3); }));
+    // Tail: a chain of segments, each bending a little, so it curls and sways.
+    const tailRoot = new THREE.Group();
+    tailRoot.position.set(0, 0.38, 0.34);
+    tailRoot.rotation.x = 0.6;
+    let parent = tailRoot;
+    const tailSegs = [];
+    for (let i = 0; i < 6; i++) {
+      const seg = new THREE.Group();
+      seg.add(make((m) => m.tube(0, 0.04, 0, 0.034 - i * 0.003, 0.03 - i * 0.003, 0.09, 'y', i === 5 && variant % 3 === 0 ? stripe : c, 6, false)));
+      if (i > 0) seg.position.y = 0.08;
+      parent.add(seg);
+      tailSegs.push(seg);
+      parent = seg;
+    }
+    g.add(tailRoot);
+    const legs = [[0.08, -0.17, 0.25], [-0.08, -0.17, 0.25], [0.08, 0.27, 0.22], [-0.08, 0.27, 0.22]].map(([x, z, h]) => {
+      const l = new THREE.Group(); l.position.set(x, h, z);
+      l.add(make((m) => { m.tube(0, -h / 2, 0, 0.032, 0.042, h, 'y', z > 0 ? c : belly, 6, false); m.ball(0, -h + 0.015, -0.015, 0.065, 0.035, 0.085, belly, 6, 3); }));
       g.add(l);
       return l;
     });
-    g.userData = { head, tail, legs };
+    g.userData = { head, tail: tailRoot, tailSegs, legs };
     return g;
   }
 
-  function person(shirt, hair) {
-    const skin = 0xdcb48f;
+  // People: jointed at hips, knees, shoulders and elbows, so they can walk and sit.
+  function person(opts) {
+    if (typeof opts === 'number') opts = { shirt: opts, hair: arguments[1] };
+    const o = Object.assign({ shirt: 0x3f6ea8, pants: 0x33415e, hair: 0x3a2a1c, skin: 0xdcb48f, shoes: 0x2a2522, style: 'short', dress: false, scale: 1 }, opts);
     const g = new THREE.Group();
-    g.add(make((m) => {
-      m.tube(0, 1.14, 0, 0.21, 0.26, 0.62, 'y', shirt, 8);
-      m.ball(0.31, 1.36, 0, 0.14, 0.14, 0.14, shirt, 6, 4);
-      m.ball(-0.31, 1.36, 0, 0.14, 0.14, 0.14, shirt, 6, 4);
-      m.tube(0.33, 1.12, 0, 0.05, 0.065, 0.5, 'y', shirt, 6);
-      m.tube(-0.33, 1.12, 0, 0.05, 0.065, 0.5, 'y', shirt, 6);
-      m.ball(0.33, 0.84, 0, 0.09, 0.11, 0.09, skin, 5, 3);
-      m.ball(-0.33, 0.84, 0, 0.09, 0.11, 0.09, skin, 5, 3);
-      m.tube(0.12, 0.42, 0, 0.075, 0.11, 0.84, 'y', 0x33415e, 7);
-      m.tube(-0.12, 0.42, 0, 0.075, 0.11, 0.84, 'y', 0x33415e, 7);
-      m.tube(0, 1.5, 0, 0.06, 0.06, 0.14, 'y', skin, 6, false);
-      m.ball(0, 1.66, 0, 0.27, 0.32, 0.29, skin);
-      m.ball(0, 1.74, 0.03, 0.3, 0.22, 0.32, hair);
-      m.ball(0.065, 1.67, -0.135, 0.04, 0.035, 0.02, 0x222222, 5, 3);
-      m.ball(-0.065, 1.67, -0.135, 0.04, 0.035, 0.02, 0x222222, 5, 3);
-      m.box(0, 1.58, -0.14, 0.07, 0.012, 0.012, 0x8a4a3a);
+    const body = new THREE.Group();
+    g.add(body);
+    body.add(make((m) => {
+      m.ball(0, 0.96, 0, 0.32, 0.18, 0.22, o.dress ? o.shirt : o.pants, 9, 5);   // hips
+      m.tube(0, 1.18, 0, 0.165, 0.19, 0.42, 'y', o.shirt, 10, false);            // waist to chest
+      m.ball(0, 1.36, 0, 0.42, 0.22, 0.25, o.shirt, 10, 5);                     // chest and shoulders
+      if (o.dress) m.tube(0, 0.72, 0, 0.3, 0.17, 0.5, 'y', o.shirt, 10, false);  // skirt
+      m.tube(0, 1.5, 0, 0.055, 0.06, 0.1, 'y', o.skin, 7, false);               // neck
     }));
+    const head = new THREE.Group();
+    head.position.y = 1.55;
+    head.add(make((m) => {
+      m.ball(0, 0.11, 0, 0.2, 0.25, 0.22, o.skin, 10, 7);
+      m.ball(0, 0.1, -0.11, 0.035, 0.05, 0.04, o.skin, 5, 3);                 // nose
+      m.ball(0.103, 0.11, 0, 0.03, 0.055, 0.04, o.skin, 5, 3); m.ball(-0.103, 0.11, 0, 0.03, 0.055, 0.04, o.skin, 5, 3); // ears
+      for (const s of [1, -1]) {
+        m.ball(s * 0.048, 0.135, -0.095, 0.036, 0.022, 0.02, 0xf4f1ea, 6, 3);
+        m.ball(s * 0.048, 0.135, -0.103, 0.017, 0.017, 0.01, 0x2a2018, 5, 3);
+        m.box(s * 0.05, 0.17, -0.1, 0.055, 0.01, 0.01, o.hair === 0xd8d4cc ? 0x8a847a : o.hair); // brows
+      }
+      m.box(0, 0.045, -0.104, 0.06, 0.008, 0.01, 0x9a5a4a);                    // mouth
+      if (o.style === 'scarf') {
+        m.ball(0, 0.14, 0.01, 0.23, 0.27, 0.24, o.hair, 10, 6);
+        m.tube(0, -0.02, 0.02, 0.13, 0.09, 0.14, 'y', o.hair, 8, false);
+      } else if (o.style === 'cap') {
+        m.ball(0, 0.2, 0.0, 0.215, 0.13, 0.235, o.hair, 9, 4);
+        m.box(0, 0.19, -0.14, 0.18, 0.015, 0.1, o.hair);
+      } else if (o.style === 'long') {
+        m.ball(0, 0.16, 0.02, 0.22, 0.22, 0.24, o.hair, 9, 5);
+        m.ball(0, 0.0, 0.07, 0.21, 0.32, 0.12, o.hair, 8, 5);
+      } else if (o.style !== 'bald') {
+        m.ball(0, 0.17, 0.015, 0.215, 0.18, 0.235, o.hair, 9, 5);
+      }
+    }));
+    body.add(head);
+    const limb = (x, y, upperLen, lowerLen, r, upperC, lowerC, endFn) => {
+      const top = new THREE.Group(); top.position.set(x, y, 0);
+      top.add(make((m) => m.tube(0, -upperLen / 2, 0, r * 0.85, r, upperLen, 'y', upperC, 8, false)));
+      const joint = new THREE.Group(); joint.position.y = -upperLen;
+      joint.add(make((m) => { m.ball(0, 0, 0, r * 1.9, r * 1.9, r * 1.9, upperC, 6, 3); m.tube(0, -lowerLen / 2, 0, r * 0.75, r * 0.85, lowerLen, 'y', lowerC, 8, false); endFn(m, -lowerLen); }));
+      top.add(joint);
+      body.add(top);
+      return { top, joint };
+    };
+    const legs = [0.1, -0.1].map((x) => limb(x, 0.93, 0.44, 0.43, 0.075, o.dress ? o.skin : o.pants, o.dress ? o.skin : o.pants, (m, y) => m.hull([[-0.055, y - 0.07, -0.13], [0.055, y - 0.07, -0.13], [0.055, y - 0.07, 0.07], [-0.055, y - 0.07, 0.07], [-0.05, y + 0.01, -0.09], [0.05, y + 0.01, -0.09], [0.05, y + 0.01, 0.06], [-0.05, y + 0.01, 0.06]], o.shoes)));
+    const arms = [0.235, -0.235].map((x) => limb(x, 1.42, 0.3, 0.27, 0.052, o.shirt, o.skin, (m, y) => m.ball(0, y - 0.05, 0, 0.075, 0.1, 0.05, o.skin, 6, 3)));
+    arms.forEach((a, i) => { a.top.rotation.z = i ? -0.08 : 0.08; });
+    g.scale.setScalar(o.scale);
+    g.userData = { body, head, legs, arms };
     return g;
   }
+  // Pose a person: phase advances while walking, amount 0..1 is stride strength. mode: 'walk' or 'sit'.
+  function animatePerson(p, phase, amount, mode) {
+    const u = p.userData;
+    if (mode === 'sit') {
+      u.legs.forEach((l) => { l.top.rotation.x = -1.45; l.joint.rotation.x = 1.45; });
+      u.arms.forEach((a) => { a.top.rotation.x = -0.6; a.joint.rotation.x = -0.5; });
+      u.body.position.y = -0.42;
+      return;
+    }
+    u.body.position.y = Math.abs(Math.sin(phase)) * 0.035 * amount;
+    const s = Math.sin(phase) * 0.55 * amount;
+    u.legs[0].top.rotation.x = s; u.legs[1].top.rotation.x = -s;
+    u.legs[0].joint.rotation.x = Math.max(0, -Math.sin(phase + 0.6)) * 0.9 * amount;
+    u.legs[1].joint.rotation.x = Math.max(0, Math.sin(phase + 0.6)) * 0.9 * amount;
+    u.arms[0].top.rotation.x = -s * 0.8; u.arms[1].top.rotation.x = s * 0.8;
+    u.arms[0].joint.rotation.x = -0.25 - amount * 0.2; u.arms[1].joint.rotation.x = -0.25 - amount * 0.2;
+  }
 
-  // Original rural sedan: sloped hood, raked windshield, separate wheels. Origin: centre at ground level; driver sits on the left.
+  // Compact saloon in the style of a Lada Granta: sloped bonnet, raked windscreen, high boot.
+  // Origin: centre at ground level; driver sits on the left. No maker's badges.
   function car(options) {
-    const o = Object.assign({ body: 0xcfd0c8, lower: 0x9fa19c, taxi: false }, options);
+    const o = Object.assign({ body: 0xa8141e, lower: 0x9fa19c, taxi: false }, options);
     const paint = o.body, dark = 0x26282c, trim = 0x8c8e92;
     const g = new THREE.Group();
     const W0 = 0.9, W1 = 0.72, BELT = 1.0, ROOF = 1.72;
@@ -189,6 +273,9 @@
       // Lights, grille, bumpers, plate
       m.box(0, 0.48, -2.16, 1.82, 0.15, 0.12, trim); m.box(0, 0.48, 2.17, 1.82, 0.15, 0.12, trim);
       m.box(0, 0.68, -2.13, 1.04, 0.2, 0.03, 0x2c2e32);
+      m.box(0, 0.77, -2.14, 1.08, 0.025, 0.03, 0xc9ccd0); m.box(0, 0.59, -2.14, 1.08, 0.025, 0.03, 0xc9ccd0);
+      for (const sx of [1, -1]) { m.hull([[sx * 0.9, 1.0, -0.86], [sx * 1.08, 1.0, -0.86], [sx * 1.08, 1.0, -0.76], [sx * 0.9, 1.0, -0.76], [sx * 0.9, 1.12, -0.86], [sx * 1.08, 1.12, -0.84], [sx * 1.08, 1.12, -0.76], [sx * 0.9, 1.12, -0.76]], o.body); m.box(sx * 1.0, 1.06, -0.861, 0.15, 0.09, 0.005, 0x8fa4b4); }
+      for (const [x, z] of [[0.86, -1.3], [-0.86, -1.3], [0.86, 1.3], [-0.86, 1.3]]) m.tube(x * 1.02, 0.36, z, 0.44, 0.44, 0.06, 'x', 0x1a1a1c, 12, false); // wheel arches
       m.ball(0.64, 0.68, -2.12, 0.3, 0.17, 0.05, 0xf1ecca, 7, 4); m.ball(-0.64, 0.68, -2.12, 0.3, 0.17, 0.05, 0xf1ecca, 7, 4);
       m.box(0.62, 0.8, 2.145, 0.36, 0.14, 0.03, 0xb23030); m.box(-0.62, 0.8, 2.145, 0.36, 0.14, 0.03, 0xb23030);
       m.box(0, 0.5, 2.24, 0.5, 0.11, 0.015, 0xeeeeee);
@@ -382,5 +469,5 @@
     return m;
   }
 
-  G.models = { Builder, make, chicken, cat, person, car, plane, cockpit, goldKey, carKey, beacon, egg, crate, pallet, bowl, arm, door, textSprite, signPlane };
+  G.models = { Builder, make, chicken, cat, person, animatePerson, car, plane, cockpit, goldKey, carKey, beacon, egg, crate, pallet, bowl, arm, door, textSprite, signPlane };
 })();

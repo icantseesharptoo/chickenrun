@@ -83,6 +83,7 @@
   }
   const canvas = $('game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: /[#&]shot=/.test(location.hash) });
+  renderer.autoClear = false; // the background landscape and the world are drawn in two passes
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH ? TOUCH_LEVELS[touchLevel].ratio : 1.5));
   // Phones can drop the graphics context under memory pressure: keep the progress and offer a reload.
   canvas.addEventListener('webglcontextlost', (e) => {
@@ -281,6 +282,57 @@
   taxiObj.add(taxiDriver);
   scene.add(taxiObj);
   let thirdPerson = false, lookYaw = 0;
+  // ---------- third-person view (the default, as in Roblox); V switches to first person ----------
+  let viewMode = 'third', camDist = 5;
+  const avatar = M.person({ shirt: 0x2f6db5, pants: 0x2b3448, hair: 0x2a1d14, style: 'short' });
+  scene.add(avatar);
+  const avatarCrate = M.crate();
+  avatarCrate.position.set(0, 1.12, -0.45);
+  avatarCrate.visible = false;
+  avatar.add(avatarCrate);
+  let faceYaw = S.yaw, walkPhase = 0;
+  const lerpAngle = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= 6.2832; while (d < -Math.PI) d += 6.2832; return a + d * t; };
+  function placeFootCamera() {
+    const third = viewMode === 'third';
+    avatar.visible = third;
+    arm.visible = !third && !carrying;
+    heldCrate.visible = !third && carrying;
+    avatarCrate.visible = third && carrying;
+    if (!third) { camera.position.set(P.x, P.eye + Math.sin(P.bob * 2) * 0.035, P.z); camera.rotation.set(P.pitch, P.yaw, 0); return; }
+    // Orbit behind the head; pull in when a wall, roof or the ground is in the way.
+    const py = P.y + 1.55, cp = Math.cos(P.pitch);
+    const fx = -Math.sin(P.yaw) * cp, fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * cp;
+    let d = camDist;
+    for (let t = 0.3; t <= camDist; t += 0.2) {
+      const x = P.x - fx * t, y = py - fy * t, z = P.z - fz * t;
+      if (y < W.TOP + 0.15 || V.solidAt(Math.floor(x), Math.floor(y), Math.floor(z))) { d = Math.max(0.2, t - 0.35); break; }
+    }
+    camera.position.set(P.x - fx * d, Math.max(W.TOP + 0.2, py - fy * d), P.z - fz * d);
+    camera.rotation.set(P.pitch, P.yaw, 0);
+    if (d < 0.9) avatar.visible = false; // too close: the camera would be inside the character
+  }
+  function animateAvatar(dt) {
+    const hsp = Math.hypot(P.vx, P.vz);
+    if (hsp > 0.3) faceYaw = lerpAngle(faceYaw, Math.atan2(-P.vx, -P.vz), Math.min(1, dt * 10));
+    walkPhase += hsp * dt * 2.3;
+    avatar.position.set(P.x, P.y, P.z);
+    avatar.rotation.set(0, faceYaw, 0);
+    M.animatePerson(avatar, walkPhase, Math.min(1, hsp / 4.6), 'walk');
+    if (carrying) avatar.userData.arms.forEach((a) => { a.top.rotation.x = -1.25; a.joint.rotation.x = -0.4; });
+    else if (armSwing > 0) { avatar.userData.arms[0].top.rotation.x = -1.3 * armSwing; }
+  }
+  // In the car the avatar sits in the driver's seat (seen from the chase camera).
+  const seatPos = new THREE.Vector3();
+  function seatAvatar() {
+    avatar.visible = thirdPerson;
+    avatarCrate.visible = false;
+    if (!thirdPerson) return;
+    carObj.updateMatrixWorld(true);
+    seatPos.set(-0.42, 0.04, 0.3).applyMatrix4(carObj.matrixWorld);
+    avatar.position.copy(seatPos);
+    avatar.quaternion.copy(carObj.quaternion);
+    M.animatePerson(avatar, 0, 0, 'sit');
+  }
 
   // Doors
   const doors = SI.doors.map((d) => {
@@ -474,8 +526,8 @@
         A.step(id === B.PLANKS || id === B.RUG ? 'wood' : id === B.ASPHALT || id === B.FLOOR_TILE || id === B.CONCRETE || id === B.ROAD_LINE ? 'hard' : 'soft');
       }
     }
-    camera.position.set(P.x, P.eye + Math.sin(P.bob * 2) * 0.035, P.z);
-    camera.rotation.set(P.pitch, P.yaw, 0);
+    animateAvatar(dt);
+    placeFootCamera();
     arm.position.y = -0.26 + Math.sin(P.bob * 2) * 0.012 - armSwing * 0.1;
     arm.rotation.x = 0.25 + armSwing * 0.8;
     armSwing = Math.max(0, armSwing - dt * 4);
@@ -565,6 +617,7 @@
   function enterCar() {
     if (!S.carKey) { toast('The car is locked. The key is on the kitchen table.'); A.denied(); return; }
     S.inCar = true; lookYaw = 0; P.pitch = -0.04;
+    thirdPerson = viewMode === 'third';
     arm.visible = false;
     A.ignition();
     $('speedo').classList.remove('hidden');
@@ -640,7 +693,11 @@
     const sw = moving ? Math.sin(a.phase * 2) * 0.55 : 0;
     ud.legs.forEach((l, i) => { l.rotation.x = i % 2 ? -sw : sw; });
     if (isHen) ud.head.rotation.x = moving ? Math.sin(a.phase * 2) * 0.16 : Math.max(0, Math.sin(a.phase * 1.3)) > 0.82 ? 0.95 : 0;
-    else { ud.tail.rotation.z = Math.sin(a.phase * 1.6) * 0.3; ud.head.rotation.y = moving ? 0 : Math.sin(a.phase * 0.5) * 0.35; }
+    else {
+      ud.tail.rotation.z = Math.sin(a.phase * 1.6) * 0.25;
+      if (ud.tailSegs) ud.tailSegs.forEach((sg, i) => { sg.rotation.x = 0.16 + Math.sin(a.phase * 1.3 + i * 0.6) * 0.06; sg.rotation.z = Math.sin(a.phase * 1.6 + i * 0.5) * 0.12; });
+      ud.head.rotation.y = moving ? 0 : Math.sin(a.phase * 0.5) * 0.35;
+    }
     a.y = V.groundBelow(a.x, a.z, SI.home.y + 1.5);
     a.group.position.set(a.x, a.y + (a.state === 'flee' ? Math.abs(Math.sin(a.phase * 2)) * 0.25 : 0), a.z);
     a.group.rotation.y = a.yaw;
@@ -722,7 +779,7 @@
     pos: () => SI.home.keyHook, range: 4,
     active: () => !S.carKey,
     label: () => 'Take the car key',
-    act: () => { S.carKey = true; carKeyObj.visible = false; A.key(); renderInv(); toast('You have the car key. The car is in the yard.'); },
+    act: () => { S.carKey = true; carKeyObj.visible = false; A.key(); renderInv(); toast('You have the car key. Your red Lada Granta is in the yard.'); },
   });
   addI({
     pos: () => SI.home.fridge, range: 4,
@@ -1097,12 +1154,99 @@
     },
   });
 
+  // ---------- villagers ----------
+  const NPC_LOOKS = [
+    { name: 'Aigul', shirt: 0xb83a4b, pants: 0x2d3550, hair: 0x2a1a12, style: 'long', dress: true },
+    { name: 'Rustam', shirt: 0x4b6b3a, pants: 0x30343c, hair: 0x1e1610, style: 'short' },
+    { name: 'Granny Raisa', shirt: 0x6a4f7a, pants: 0x3b3340, hair: 0xb8402e, style: 'scarf', dress: true, skin: 0xd8b08c },
+    { name: 'Ildar', shirt: 0xd6d2c4, pants: 0x3a4a63, hair: 0x2f3236, style: 'cap' },
+    { name: 'Zulfiya', shirt: 0x2f7c86, pants: 0x2b2b33, hair: 0x3b2618, style: 'long', dress: true },
+    { name: 'Timur', shirt: 0x8a5a2b, pants: 0x283044, hair: 0x15110d, style: 'short' },
+    { name: 'Grandpa Marat', shirt: 0x5c6670, pants: 0x3a3a3a, hair: 0xd8d4cc, style: 'cap' },
+    { name: 'Dinara', shirt: 0xe0b23c, pants: 0x30374a, hair: 0x5a3a22, style: 'long' },
+    { name: 'Azat', shirt: 0x3a4f8a, pants: 0x2a2a2a, hair: 0x20160f, style: 'short' },
+    { name: 'Albina', shirt: 0xa23a7a, pants: 0x31313a, hair: 0x2a1a12, style: 'long', dress: true },
+  ];
+  const LINES_HOME = [
+    'Hello, neighbour! Have you fed your chickens today?', 'Good day! The Tanalyk is cold this time of year.', 'Try the chak-chak at the shop, it is fresh today.',
+    'They say there are flights from the new airport now!', 'My cat keeps visiting your yard. I think she likes it there.', 'Busy day at the parcel depot, I heard.', 'Lovely weather for the garden.',
+  ];
+  const WALK_TYPES = new Set(['residential', 'tertiary', 'secondary', 'unclassified', 'service', 'living_street', 'primary']);
+  const NPC_COUNT = TOUCH ? 6 : 10;
+  const npcs = [];
+  for (let i = 0; i < NPC_COUNT; i++) {
+    const look = NPC_LOOKS[i % NPC_LOOKS.length];
+    const g = M.person(look);
+    g.visible = false;
+    scene.add(g);
+    const n = { i, look, g, active: false, head: new THREE.Vector3(), speed: 1.15 + Math.random() * 0.4, phase: Math.random() * 6, wait: 0, line: 0 };
+    npcs.push(n);
+    addI({
+      pos: () => n.head.set(n.x, W.TOP + 1.5, n.z), range: 3, loose: true,
+      active: () => n.active,
+      label: () => `Talk to ${n.look.name}`,
+      act: () => {
+        const c = S.abroad ? countryById(S.abroad.id) : null;
+        const line = c ? `${c.hello}! Welcome to ${c.city}. Enjoy your stay.` : LINES_HOME[(n.line++ + n.i) % LINES_HOME.length];
+        toast(`${n.look.name}: ${line}`);
+        n.wait = 3;
+      },
+    });
+  }
+  function npcSeg(n, k) {
+    const p = n.r.p;
+    n.k = k;
+    n.ax = p[k * 2]; n.az = p[k * 2 + 1]; n.bx = p[k * 2 + 2]; n.bz = p[k * 2 + 3];
+    n.len = Math.hypot(n.bx - n.ax, n.bz - n.az) || 1;
+  }
+  function spawnNpc(n) {
+    for (let tries = 0; tries < 12; tries++) {
+      const a = Math.random() * 6.2832, d = 30 + Math.random() * 100;
+      const list = W.lookup(P.x + Math.cos(a) * d, P.z + Math.sin(a) * d).roads.filter((sg) => WALK_TYPES.has(sg.r.type));
+      if (!list.length) continue;
+      const sg = list[Math.floor(Math.random() * list.length)];
+      n.r = sg.r;
+      let k = 0;
+      for (let i = 0; i + 3 < n.r.p.length; i += 2) if (n.r.p[i] === sg.ax && n.r.p[i + 1] === sg.az) { k = i / 2; break; }
+      npcSeg(n, k);
+      n.t = Math.random() * n.len; n.dir = Math.random() < 0.5 ? 1 : -1; n.side = Math.random() < 0.5 ? 1 : -1;
+      n.active = true; n.g.visible = true;
+      return;
+    }
+  }
+  function updateNPCs(dt) {
+    for (const n of npcs) {
+      if (!n.active) { spawnNpc(n); continue; }
+      if (Math.hypot(n.x - P.x, n.z - P.z) > 170) { n.active = false; n.g.visible = false; continue; }
+      const dx = (n.bx - n.ax) / n.len, dz = (n.bz - n.az) / n.len;
+      const nearPlayer = Math.hypot(n.x - P.x, n.z - P.z) < 1.5 && !S.inCar;
+      if (S.inCar && Math.hypot(n.x - S.cx, n.z - S.cz) < 3) { n.side = -n.side; n.wait = 1; } // step out of the car's way
+      n.wait = Math.max(0, n.wait - dt);
+      const moving = !nearPlayer && n.wait <= 0;
+      if (moving) {
+        n.t += n.dir * n.speed * dt;
+        if (n.t > n.len) { if (n.k * 2 + 5 < n.r.p.length) { npcSeg(n, n.k + 1); n.t = 0; } else { n.dir = -1; n.t = n.len; } }
+        if (n.t < 0) { if (n.k > 0) { npcSeg(n, n.k - 1); n.t = n.len; } else { n.dir = 1; n.t = 0; } }
+        n.phase += dt * n.speed * 2.6;
+      }
+      const ddx = (n.bx - n.ax) / n.len, ddz = (n.bz - n.az) / n.len, off = (n.r.w / 2 + 0.9) * n.side;
+      n.x = n.ax + ddx * n.t - ddz * off; n.z = n.az + ddz * n.t + ddx * off;
+      const yaw = moving ? Math.atan2(-ddx * n.dir, -ddz * n.dir) : Math.atan2(-(P.x - n.x), -(P.z - n.z));
+      n.yaw = lerpAngle(n.yaw || yaw, yaw, Math.min(1, dt * 6));
+      n.g.position.set(n.x, W.TOP, n.z);
+      n.g.rotation.y = n.yaw;
+      M.animatePerson(n.g, n.phase, moving ? 0.75 : 0, 'walk');
+      void dx; void dz;
+    }
+  }
+
   let currentI = null;
+  const headPos = new THREE.Vector3();
   const viewDir = new THREE.Vector3();
   function findInteract() {
     if (S.inCar || cut) return null;
     camera.getWorldDirection(viewDir);
-    const o = camera.position;
+    const o = headPos.set(P.x, P.eye, P.z);
     let best = null, bestScore = -1e9;
     for (const it of interact) {
       if (it.active && !it.active()) continue;
@@ -1249,7 +1393,10 @@
     const yaw = S.inCar ? S.ch + lookYaw : P.yaw;
     const brg = ((-yaw * 180) / Math.PI % 360 + 360) % 360;
     $('compass').textContent = CARD[Math.round(brg / 45) % 8];
-    $('street').textContent = S.abroad ? `${W.roadNameAt(P.x, P.z) || countryById(S.abroad.id).city}, ${countryById(S.abroad.id).name}` : W.roadNameAt(P.x, P.z) || 'Akyar';
+    if (cut) { $('street').textContent = cut.type === 'flight' ? 'In flight' : 'In a taxi'; } else {
+    const atHome = !S.abroad && P.x >= SI.home.x0 && P.x <= SI.home.x1 && P.z >= SI.home.z0 && P.z <= SI.home.z1;
+    $('street').textContent = atHome ? 'Akmulla St 76, Akyar' : S.abroad ? `${W.roadNameAt(P.x, P.z) || countryById(S.abroad.id).city}, ${countryById(S.abroad.id).name}` : W.roadNameAt(P.x, P.z) || 'Akyar';
+    }
     if (S.inCar) $('speed').textContent = Math.round(Math.abs(car.speed) * 3.6);
     if (miniT <= 0) { miniT = 0.2; drawMini(yaw, tgt); }
   }
@@ -1330,7 +1477,7 @@
       const [x, y] = toC(p.x, p.z);
       drawMarker(c, x, y, '#d9d9d9', en);
     }
-    let [x, y] = toC(SI.home.center.x, SI.home.center.z); drawMarker(c, x, y, '#6fd36f', 'Home');
+    let [x, y] = toC(SI.home.center.x, SI.home.center.z); drawMarker(c, x, y, '#6fd36f', 'Home: Akmulla 76');
     [x, y] = toC(SI.shop.entrance.x, SI.shop.entrance.z); drawMarker(c, x, y, '#59a6ff', 'Shop');
     [x, y] = toC(SI.work.entrance.x, SI.work.entrance.z); drawMarker(c, x, y, '#ffb347', 'Work: Parcel Depot');
     [x, y] = toC(SI.airHome.entrance.x, SI.airHome.entrance.z); drawMarker(c, x, y, '#d9a6ff', 'Airport');
@@ -1416,7 +1563,10 @@
       case 'KeyQ': if (!S.inCar) eatNext(); break;
       case 'KeyM': toggleMap(); break;
       case 'KeyN': A.setMuted(!A.isMuted()); toast(A.isMuted() ? 'Sound off' : 'Sound on'); break;
-      case 'KeyV': if (S.inCar) { thirdPerson = !thirdPerson; carObj.visible = true; } break;
+      case 'KeyV':
+        if (S.inCar) { thirdPerson = !thirdPerson; carObj.visible = true; }
+        else if (!cut) { viewMode = viewMode === 'third' ? 'first' : 'third'; toast(viewMode === 'third' ? 'Third-person view' : 'First-person view'); }
+        break;
       case 'KeyH': if (S.inCar) A.horn(); break;
     }
   }
@@ -1437,6 +1587,7 @@
   }
   addEventListener('wheel', (e) => {
     if (mapOpen) zoomMap(e.deltaY < 0 ? 1 : -1);
+    else if (viewMode === 'third' && !S.inCar) camDist = clamp(camDist + (e.deltaY > 0 ? 0.6 : -0.6), 2, 9);
   }, { passive: true });
   function showPause() {
     paused = true;
@@ -1550,7 +1701,9 @@
   function tick(dt) {
     updateTime(dt);
     if (cut) { if (cut.type === 'flight') updateFlight(cut, dt); else updateTaxi(cut, dt); }
-    else if (S.inCar) { updateCar(dt); updateCarCamera(); } else { updatePlayer(dt); syncCarObj(); }
+    else if (S.inCar) { updateCar(dt); updateCarCamera(); seatAvatar(); } else { updatePlayer(dt); syncCarObj(); }
+    if (cut) avatar.visible = false;
+    updateNPCs(dt);
     hens.forEach((a) => updateAnimal(a, dt));
     cats.forEach((a) => updateAnimal(a, dt));
     doors.forEach((d) => {
@@ -1584,7 +1737,7 @@
     U.uTime.value = performance.now() / 1000;
     updateSky(S.hour);
     dome.position.copy(b);
-    renderer.render(scene, camera);
+    V.render(renderer, scene, camera, dome);
   }
 
   let last = 0;
@@ -1602,7 +1755,7 @@
   // ---------- boot ----------
   const DEV = /[#&]shot=|[#&]dev/.test(location.hash) ? { frozen: false } : null;
   function camFromState() {
-    if (S.inCar) { $('speedo').classList.remove('hidden'); arm.visible = false; updateCarCamera(); } else { camera.position.set(P.x, P.eye, P.z); camera.rotation.set(P.pitch, P.yaw, 0); }
+    if (S.inCar) { $('speedo').classList.remove('hidden'); arm.visible = false; thirdPerson = viewMode === 'third'; updateCarCamera(); seatAvatar(); } else { animateAvatar(0); placeFootCamera(); }
   }
   function boot() {
     const status = $('load-status');
@@ -1616,6 +1769,7 @@
       V.buildGround(groundCanvas);
       V.buildFlats();
       V.buildFar();
+      if (window.AKYAR_TERRAIN) V.buildTerrain(window.AKYAR_TERRAIN, TOUCH);
       status.textContent = 'Building the village…';
       setTimeout(() => {
         const hadSave = load();
@@ -1645,6 +1799,7 @@
     current: () => currentI,
     buy, openShop, closeShop, eatNext, sleep, exportSave, importSave,
     COUNTRIES, startFlight, skipCut, pickCountry, applyPlace, isCut: () => !!cut, cutInfo: () => cut, taxiPose: () => taxiPose, countryById, TICKET_PRICE, TRIP_QUESTS,
+    avatar, npcs, setView: (m) => { viewMode = m; }, getView: () => viewMode, setCamDist: (d) => { camDist = d; },
     isTouch: TOUCH, isPaused: () => paused, isStarted: () => started, isMapOpen: () => mapOpen, mapZoom: () => mapZoom, touchLevel: () => touchLevel, adaptQuality,
     isCarrying: () => carrying,
     setYawPitch(y, p) { P.yaw = y; P.pitch = p; },
