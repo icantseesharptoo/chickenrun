@@ -284,10 +284,10 @@
   let thirdPerson = false, lookYaw = 0;
   // ---------- third-person view (the default, as in Roblox); V switches to first person ----------
   let viewMode = 'third', camDist = 5;
-  const avatar = M.person({ shirt: 0x2f6db5, pants: 0x2b3448, hair: 0x2a1d14, style: 'short' });
+  const avatar = M.blockyPerson({ skin: 0xf2c94c, shirt: 0x1f6fc4, pants: 0x3f8f3a });
   scene.add(avatar);
   const avatarCrate = M.crate();
-  avatarCrate.position.set(0, 1.12, -0.45);
+  avatarCrate.position.set(0, 1.18, -0.62);
   avatarCrate.visible = false;
   avatar.add(avatarCrate);
   let faceYaw = S.yaw, walkPhase = 0;
@@ -318,8 +318,8 @@
     avatar.position.set(P.x, P.y, P.z);
     avatar.rotation.set(0, faceYaw, 0);
     M.animatePerson(avatar, walkPhase, Math.min(1, hsp / 4.6), 'walk');
-    if (carrying) avatar.userData.arms.forEach((a) => { a.top.rotation.x = -1.25; a.joint.rotation.x = -0.4; });
-    else if (armSwing > 0) { avatar.userData.arms[0].top.rotation.x = -1.3 * armSwing; }
+    if (carrying) M.poseCarry(avatar);
+    else if (armSwing > 0) M.poseReach(avatar, armSwing);
   }
   // In the car the avatar sits in the driver's seat (seen from the chase camera).
   const seatPos = new THREE.Vector3();
@@ -336,7 +336,7 @@
 
   // Doors
   const doors = SI.doors.map((d) => {
-    const color = d.id === 'home' ? 0x8a5c33 : d.id === 'shed' ? 0x705231 : d.id === 'shop' ? 0x3f7fb5 : 0x7a8084;
+    const color = d.id === 'mosque' ? 0x2f6b4a : d.id === 'home' ? 0x8a5c33 : d.id === 'shed' ? 0x705231 : d.id === 'shop' ? 0x3f7fb5 : 0x7a8084;
     const g = M.door(color, d.along);
     if (d.along === 'x') g.position.set(d.x, d.y, d.z + 0.5); else g.position.set(d.x + 0.5, d.y, d.z);
     scene.add(g);
@@ -377,6 +377,57 @@
   mkStaff(0x1f4e82, 0x2b2118, SI.airHome.clerk, SI.airHome.clerkYaw);
   mkStaff(0x1f4e82, 0x4a3a28, SI.airAbroad.clerk, SI.airAbroad.clerkYaw);
   mkStaff(0x5a2f6e, 0x2b2118, SI.hotel.clerk, 0);
+
+  // ---------- Mosque and the Friday (Juma) prayer ----------
+  // The week starts on a Wednesday, so the first Friday is day 3.
+  const WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const weekday = (day) => (day + 1) % 7;
+  const isFriday = () => weekday(S.day) === 4;
+  const PRAYER_START = 12.5, PRAYER_END = 15;
+  const MQ = SI.mosque;
+  let imam = null;
+  const congregation = [];
+  if (MQ) {
+    placeSign(MQ, ['MOSQUE', 'FRIDAY PRAYER 12:30'], '#1f5a40', '#f2e3a6');
+    imam = M.person({ shirt: 0xeeeae0, pants: 0xeeeae0, hair: 0xf4f2ec, style: 'skullcap', dress: true, skin: 0xd6ad86 });
+    imam.position.copy(MQ.imam); imam.rotation.y = MQ.imamYaw;
+    scene.add(imam);
+    const looks = [[0x4b6b3a, 0x2a1e14], [0x3a4f8a, 0xf4f2ec], [0x5c6670, 0x20160f], [0x8a5a2b, 0xf4f2ec], [0x2f7c86, 0x1e1610], [0x6a4f7a, 0xf4f2ec]];
+    MQ.rows.forEach((p, i) => {
+      const [shirt, cap] = looks[i % looks.length];
+      const g = M.person({ shirt, pants: 0x33343a, hair: cap, style: cap === 0xf4f2ec ? 'skullcap' : 'short' });
+      g.position.copy(p).setY(MQ.y);
+      g.rotation.y = MQ.faceIn;
+      M.animatePerson(g, 0, 0, 'kneel');
+      g.visible = false;
+      scene.add(g);
+      congregation.push(g);
+    });
+  }
+  let inMosque = false;
+  function updateMosque() {
+    if (!MQ) return;
+    const gathering = isFriday() && S.hour >= 11 && S.hour < PRAYER_END && S.prayedDay !== S.day;
+    congregation.forEach((g) => { g.visible = gathering; });
+    const inside = !S.inCar && !S.abroad && W.inB(MQ.b, Math.floor(P.x), Math.floor(P.z));
+    if (inside && !inMosque) toast('You take off your shoes at the entrance.');
+    inMosque = inside;
+  }
+  function joinPrayer() {
+    S.hour = Math.max(S.hour, PRAYER_START) + 1;
+    S.prayedDay = S.day;
+    S.flags.prayedOnce = true;
+    S.prayers = (S.prayers || 0) + 1;
+    S.hunger = Math.min(100, S.hunger + 30);
+    const fade = $('fade');
+    fade.style.opacity = 1;
+    setTimeout(() => { fade.style.opacity = 0; }, 900);
+    toast('You joined the Friday prayer with your neighbours.');
+    toast('Afterwards, neighbours share tea and baursak with you: +30 food.');
+    A.success();
+    save();
+  }
+
 
   // Shop cashier, cat bowl, carried items and so on
   const cashier = M.person(0xb5342e, 0x3a2a1c);
@@ -535,22 +586,27 @@
   let armSwing = 0;
 
   // ---------- car ----------
-  const CAR_SAMPLES = [[0.85, -2.05], [-0.85, -2.05], [0, -2.1], [0.85, 0], [-0.85, 0], [0.85, 2.05], [-0.85, 2.05], [0, 2.1]];
+  // Points round the body, about 0.7 m apart, so a thin fence can never slip between two of them.
+  const CAR_SAMPLES = [];
+  for (const lz of [-2.1, -1.4, -0.7, 0, 0.7, 1.4, 2.1]) for (const lx of [-0.86, 0.86]) CAR_SAMPLES.push([lx, lz]);
+  CAR_SAMPLES.push([0, -2.15], [0, 2.15], [-0.43, -2.15], [0.43, -2.15], [-0.43, 2.15], [0.43, 2.15]);
   function carProbe(x, z, h, yRef) {
     const baseY = Math.floor(yRef + 0.2);
-    let maxFront = -1e9, maxRear = -1e9;
+    let maxFront = -1e9, maxRear = -1e9, hits = 0, water = false;
     const c = Math.cos(h), s = Math.sin(h);
     for (const [lx, lz] of CAR_SAMPLES) {
       const px = x + lx * c + lz * s, pz = z - lx * s + lz * c;
       const ix = Math.floor(px), iz = Math.floor(pz);
-      if (V.solidAt(ix, baseY + 1, iz) || V.solidAt(ix, baseY + 2, iz)) return { blocked: true };
       const here = V.blockAt(ix, baseY, iz);
-      if (here === B.WATER_WALL) return { blocked: true, water: true };
-      if (SOLID[here] && !TERRAIN.has(here)) return { blocked: true };
+      if (here === B.WATER_WALL) { hits++; water = true; continue; }
+      if (V.solidAt(ix, baseY + 1, iz) || V.solidAt(ix, baseY + 2, iz) || (SOLID[here] && !TERRAIN.has(here))) { hits++; continue; }
       const g = V.groundBelow(ix + 0.5, iz + 0.5, baseY + 0.5);
       if (lz < 0) maxFront = Math.max(maxFront, g); else maxRear = Math.max(maxRear, g);
     }
-    return { blocked: false, front: maxFront, rear: maxRear };
+    if (maxFront < -1e8) maxFront = maxRear;
+    if (maxRear < -1e8) maxRear = maxFront;
+    if (maxFront < -1e8) maxFront = maxRear = yRef;
+    return { blocked: hits > 0, count: hits, water, front: maxFront, rear: maxRear };
   }
   let waterToastAt = 0;
   function updateCar(dt) {
@@ -566,7 +622,9 @@
     const dh = (car.speed / 2.6) * Math.tan(car.steer) * dt;
     const nh = S.ch + dh;
     const nx = S.cx - Math.sin(nh) * car.speed * dt, nz = S.cz - Math.cos(nh) * car.speed * dt;
-    const pr = carProbe(nx, nz, nh, car.y);
+    let pr = carProbe(nx, nz, nh, car.y);
+    // Already scraping something? Any move that touches less of it is allowed, so the car can always back out.
+    if (pr.blocked && !pr.water && pr.count < carProbe(S.cx, S.cz, S.ch, car.y).count) pr = Object.assign({}, pr, { blocked: false });
     if (pr.blocked || nx < AB.x0 + 5 || nx > AB.x1 - 5 || nz < AB.z0 + 5 || nz > AB.z1 - 5) {
       if (pr.water && performance.now() - waterToastAt > 5000) { waterToastAt = performance.now(); toast('Too deep to drive here. Look for a bridge.'); }
       if (Math.abs(car.speed) > 5) A.crash();
@@ -1187,7 +1245,7 @@
       label: () => `Talk to ${n.look.name}`,
       act: () => {
         const c = S.abroad ? countryById(S.abroad.id) : null;
-        const line = c ? `${c.hello}! Welcome to ${c.city}. Enjoy your stay.` : LINES_HOME[(n.line++ + n.i) % LINES_HOME.length];
+        const line = c ? `${c.hello}! Welcome to ${c.city}. Enjoy your stay.` : isFriday() && S.hour < PRAYER_END ? 'It is Friday! Are you coming to the mosque at 12:30?' : LINES_HOME[(n.line++ + n.i) % LINES_HOME.length];
         toast(`${n.look.name}: ${line}`);
         n.wait = 3;
       },
@@ -1210,6 +1268,9 @@
       for (let i = 0; i + 3 < n.r.p.length; i += 2) if (n.r.p[i] === sg.ax && n.r.p[i + 1] === sg.az) { k = i / 2; break; }
       npcSeg(n, k);
       n.t = Math.random() * n.len; n.dir = Math.random() < 0.5 ? 1 : -1; n.side = Math.random() < 0.5 ? 1 : -1;
+      // Place it now: a stale position from its last life would make it despawn again at once.
+      const ddx = (n.bx - n.ax) / n.len, ddz = (n.bz - n.az) / n.len, off = (n.r.w / 2 + 0.9) * n.side;
+      n.x = n.ax + ddx * n.t - ddz * off; n.z = n.az + ddz * n.t + ddx * off;
       n.active = true; n.g.visible = true;
       return;
     }
@@ -1239,6 +1300,28 @@
       void dx; void dz;
     }
   }
+
+  if (MQ) addI({
+    pos: () => MQ.spot, range: 4, margin: 2,
+    active: () => !S.abroad,
+    label: () => {
+      if (!isFriday()) { const n = (4 - weekday(S.day) + 7) % 7; return `Friday prayer is held here at 12:30 (in ${n} day${n === 1 ? '' : 's'})`; }
+      if (S.prayedDay === S.day) return 'You prayed here today. See you next Friday';
+      if (S.hour < PRAYER_START) return 'Wait for the Friday prayer (starts 12:30)';
+      if (S.hour < PRAYER_END) return 'Join the Friday prayer';
+      return 'The Friday prayer is over. Come back next Friday';
+    },
+    act: () => {
+      if (isFriday() && S.prayedDay !== S.day && S.hour < PRAYER_END) joinPrayer();
+      else A.denied();
+    },
+  });
+  if (MQ) addI({
+    pos: () => MQ.imam.clone().setY(MQ.y + 1.5), range: 3.5, loose: true,
+    active: () => !S.abroad,
+    label: () => 'Talk to the imam',
+    act: () => toast(isFriday() ? 'Imam: Welcome. Please find a place in the rows; the prayer begins at 12:30.' : 'Imam: Peace be upon you. Come on Friday for the Juma prayer at 12:30.'),
+  });
 
   let currentI = null;
   const headPos = new THREE.Vector3();
@@ -1290,6 +1373,7 @@
     cats.forEach((c) => { c.fed = false; });
     S.lastReset = S.day;
     toast('Morning: the animals are hungry again.');
+    if (isFriday()) toast('It is Friday. The Juma prayer at the mosque starts at 12:30.');
   }
   function sleep() {
     const fade = $('fade');
@@ -1330,6 +1414,14 @@
     { t: 'Going abroad', d: () => `The logbook points to the airport near your house. Buy a ticket at the desk: ${TICKET_PRICE} ₽. Then fly home again.`, done: () => S.flags.returnedHome, tgt: () => { const a = SI.airHome; return nearE(a.entrance) < 25 ? a.desk : a.entrance; } },
     { t: 'Free play', d: () => 'Keep the animals fed, work daily, explore Akyar, and fly somewhere new whenever you can afford it.', done: () => false },
   ];
+  // On Fridays, before the prayer is over, the Friday prayer takes the place of the current quest.
+  const fridayDue = () => MQ && isFriday() && S.hour < PRAYER_END && S.prayedDay !== S.day;
+  const FRIDAY_QUEST = {
+    t: 'Friday prayer',
+    d: () => (S.hour < PRAYER_START ? 'It is Friday. Go to the mosque for the Juma prayer at 12:30.' : 'The Juma prayer has begun. Join it at the mosque before 15:00.'),
+    done: () => false,
+    tgt: () => (MQ && nearE(MQ.entrance) < 25 ? MQ.spot : MQ.entrance),
+  };
   // Shown instead of the main quests while on a trip.
   const TRIP_QUESTS = [
     { t: 'Abroad', d: () => `Welcome to ${countryById(S.abroad.id).name}. Take the taxi to the hotel.`, done: () => S.abroad.reachedHotel, tgt: () => PICK_TAXI.set(taxiPose.x, W.TOP, taxiPose.z) },
@@ -1347,7 +1439,7 @@
     let moved = false;
     while (S.questIdx < QUESTS.length - 1 && QUESTS[S.questIdx].done()) { S.questIdx++; moved = true; if (QUESTS[S.questIdx].onStart) QUESTS[S.questIdx].onStart(); }
     if (moved) { A.success(); }
-    const q = S.abroad ? TRIP_QUESTS.find((x) => !x.done()) : QUESTS[S.questIdx];
+    const q = S.abroad ? TRIP_QUESTS.find((x) => !x.done()) : fridayDue() ? FRIDAY_QUEST : QUESTS[S.questIdx];
     $('quest-title').textContent = q.t;
     $('quest-text').textContent = q.d();
     const tgt = q.tgt && !cut ? q.tgt() : null;
@@ -1387,7 +1479,7 @@
     if (hudT > 0) return;
     hudT = 0.12;
     const hh = Math.floor(S.hour), mm = Math.floor((S.hour - hh) * 60);
-    $('clock').textContent = `Day ${S.day} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    $('clock').textContent = `${WEEK[weekday(S.day)].slice(0, 3)} · Day ${S.day} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
     const f = $('hunger-fill'); f.style.width = S.hunger + '%'; f.classList.toggle('low', S.hunger < 25);
     $('money').textContent = S.money + ' ₽';
     const yaw = S.inCar ? S.ch + lookYaw : P.yaw;
@@ -1704,6 +1796,7 @@
     else if (S.inCar) { updateCar(dt); updateCarCamera(); seatAvatar(); } else { updatePlayer(dt); syncCarObj(); }
     if (cut) avatar.visible = false;
     updateNPCs(dt);
+    updateMosque();
     hens.forEach((a) => updateAnimal(a, dt));
     cats.forEach((a) => updateAnimal(a, dt));
     doors.forEach((d) => {
@@ -1747,7 +1840,8 @@
     const dt = Math.min(0.05, raw || 0.016);
     last = t;
     if (TOUCH && !DEV && started && !paused && !uiOpen && !document.hidden) measureFrame(raw);
-    if (started && !paused && !uiOpen) tick(dt);
+    // Dev screenshots freeze the game so a staged scene stays put.
+    if (started && !paused && !uiOpen && !(DEV && DEV.frozen)) tick(dt);
     else if (DEV && !DEV.frozen) tick(dt);
     renderFrame();
   }
@@ -1800,6 +1894,7 @@
     buy, openShop, closeShop, eatNext, sleep, exportSave, importSave,
     COUNTRIES, startFlight, skipCut, pickCountry, applyPlace, isCut: () => !!cut, cutInfo: () => cut, taxiPose: () => taxiPose, countryById, TICKET_PRICE, TRIP_QUESTS,
     avatar, npcs, setView: (m) => { viewMode = m; }, getView: () => viewMode, setCamDist: (d) => { camDist = d; },
+    isFriday, weekday, WEEK, joinPrayer, congregation,
     isTouch: TOUCH, isPaused: () => paused, isStarted: () => started, isMapOpen: () => mapOpen, mapZoom: () => mapZoom, touchLevel: () => touchLevel, adaptQuality,
     isCarrying: () => carrying,
     setYawPitch(y, p) { P.yaw = y; P.pitch = p; },

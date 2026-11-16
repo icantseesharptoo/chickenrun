@@ -2,7 +2,7 @@
 
 A first-person, block-style village game that runs in the browser, built on the real map of **Akyar, Republic of Bashkortostan, Russia**. Nothing to install: it is a static site.
 
-Wake up in your house, feed the chickens and cats, drive to work, buy food at the shop, and hunt for three old keys around town. When you can afford a ticket, fly from the airport near your house to a random country, take a taxi to a hotel, and fly home again.
+Wake up in your house, feed the chickens and cats, drive to work, buy food at the shop, and hunt for three old keys around town. On Fridays, join the Juma prayer at the town mosque at 12:30. When you can afford a ticket, fly from the airport near your house to a random country, take a taxi to a hotel, and fly home again.
 
 ## How to play
 

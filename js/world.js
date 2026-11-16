@@ -143,7 +143,7 @@
       if (l > longest) { longest = l; ax = ex / l; az = ez / l; }
     }
     const n = p.length / 2;
-    const b = { i, k: d.k, name: d.n, p, x0, z0, x1, z1, cx: sx / n, cz: sz / n, ax, az, base: TOP };
+    const b = { i, k: d.k, name: d.n, p, x0, z0, x1, z1, cx: sx / n, cz: sz / n, ax, az, base: TOP, visit: !!d.v };
     // Local axes of the footprint, for gable roofs.
     let v0 = 1e9, v1 = -1e9, u0 = 1e9, u1 = -1e9, area = 0;
     for (let k = 0; k < p.length; k += 2) {

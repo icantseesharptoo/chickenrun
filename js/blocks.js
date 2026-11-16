@@ -263,6 +263,29 @@
   tile('tv', (set) => { rect(set, 0, 0, 16, 16, 0x5e4630); rect(set, 1, 2, 14, 9, 0x111316); rect(set, 2, 3, 12, 7, 0x1e2a36); rect(set, 3, 4, 5, 2, 0x34485c); rect(set, 2, 12, 12, 3, 0x4a3726); });
   tile('sink_top', (set, fine) => { mottled(0xdcd6c8, 0.03)(set, fine); rect(set, 3, 3, 10, 8, 0xa9b1b5); rect(set, 4, 4, 8, 6, 0xc7ced1); set(8, 2, 0x8a9296); });
 
+  // Mosque: a green prayer carpet with rows of simple arches, and the mihrab niche.
+  tile('prayer_rug', (set, fine) => {
+    const n = makeNoise(16);
+    each(fine, (x, y) => {
+      const ry = y % 32, cx = (x % 32) - 15.5;
+      const arch = ry > 6 && ry < 30 && Math.abs(cx) < 11 && (ry > 14 || Math.hypot(cx, ry - 14) < 11);
+      const edge = ry > 6 && ry < 30 && Math.abs(cx) < 13 && (ry > 14 || Math.hypot(cx, ry - 14) < 13) && !arch;
+      if (ry < 2) return 0xd8b64a;
+      return shade(edge ? 0xd8b64a : arch ? 0x1f6b4a : 0x175a3d, 0.92 + n(x, y) * 0.12);
+    });
+  });
+  tile('mihrab', (set, fine) => {
+    const n = makeNoise(16);
+    each(fine, (x, y) => {
+      const cx = x - 31.5, yy = 63 - y;
+      const inner = Math.abs(cx) < 18 && (yy < 38 || Math.hypot(cx, yy - 38) < 18);
+      const rim = Math.abs(cx) < 24 && (yy < 38 || Math.hypot(cx, yy - 38) < 24) && !inner;
+      if (inner) return shade(0x1f6b4a, 0.85 + n(x, y) * 0.1 + (yy / 64) * 0.15);
+      if (rim) return shade(0xd8b64a, 0.9 + n(x, y) * 0.15);
+      return shade(0xe2ddd0, 0.95 + n(x, y) * 0.06);
+    });
+  });
+
   // Leaf clusters for tree crowns: drawn as crossed cards, so crowns look leafy rather than solid.
   const leafCard = (dark, light, leaves, size, droop) => (set, fine) => {
     for (let i = 0; i < leaves; i++) {
@@ -329,6 +352,8 @@
   block('SOFA', { top: 'sofa', side: 'sofa_side', bottom: 'sofa' });
   block('TV', { top: 'counter_top', side: 'tv', bottom: 'tv' });
   block('SINK', { top: 'sink_top', side: 'counter', bottom: 'counter' });
+  block('PRAYER_RUG', { all: 'prayer_rug' });
+  block('MIHRAB', { all: 'mihrab' });
   const plant = (n, t, h) => block(n, { all: t, solid: false, opaque: false, cross: true, plantH: h });
   plant('GRASS_PLANT', 'grass_plant', 0.45); plant('DRY_PLANT', 'dry_plant', 0.45);
   plant('FLOWER_BLUE', 'flower_blue', 0.5); plant('FLOWER_WHITE', 'flower_white', 0.5); plant('FLOWER_YELLOW', 'flower_yellow', 0.5); plant('CROP', 'crop', 0.95);

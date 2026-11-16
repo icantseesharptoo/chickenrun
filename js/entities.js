@@ -205,14 +205,19 @@
       if (o.style === 'scarf') {
         m.ball(0, 0.14, 0.01, 0.23, 0.27, 0.24, o.hair, 10, 6);
         m.tube(0, -0.02, 0.02, 0.13, 0.09, 0.14, 'y', o.hair, 8, false);
+      } else if (o.style === 'skullcap') {
+        m.ball(0, 0.2, 0.01, 0.22, 0.11, 0.235, o.hair, 10, 4);
+        m.ball(0, 0.08, 0.06, 0.2, 0.16, 0.15, 0x9a948a, 9, 4); // grey hair at the back
       } else if (o.style === 'cap') {
         m.ball(0, 0.2, 0.0, 0.215, 0.13, 0.235, o.hair, 9, 4);
+        m.ball(0, 0.09, 0.06, 0.2, 0.18, 0.15, o.hair === 0xd8d4cc ? 0xbdb7ad : 0x2a1d14, 9, 4);
         m.box(0, 0.19, -0.14, 0.18, 0.015, 0.1, o.hair);
       } else if (o.style === 'long') {
         m.ball(0, 0.16, 0.02, 0.22, 0.22, 0.24, o.hair, 9, 5);
         m.ball(0, 0.0, 0.07, 0.21, 0.32, 0.12, o.hair, 8, 5);
       } else if (o.style !== 'bald') {
         m.ball(0, 0.17, 0.015, 0.215, 0.18, 0.235, o.hair, 9, 5);
+        m.ball(0, 0.1, 0.055, 0.205, 0.22, 0.16, o.hair, 9, 5); // back of the head
       }
     }));
     body.add(head);
@@ -232,23 +237,83 @@
     g.userData = { body, head, legs, arms };
     return g;
   }
-  // Pose a person: phase advances while walking, amount 0..1 is stride strength. mode: 'walk' or 'sit'.
+  // Roblox-style blocky character: box torso and limbs, rounded head with a painted smile, no knees or elbows.
+  // Proportions follow the classic 5-unit figure (legs 2, torso 2, head 1), scaled to 1.8 m.
+  function blockyPerson(opts) {
+    const o = Object.assign({ skin: 0xf2c94c, shirt: 0x1f6fc4, pants: 0x3f8f3a, shoes: 0x2b2b2b, hat: null }, opts);
+    const S = 0.36, g = new THREE.Group(), body = new THREE.Group();
+    g.add(body);
+    // Slightly bevelled boxes read as plastic blocks rather than raw cubes.
+    const bevel = (m, cx, cy, cz, w, h, d, c) => {
+      const b = 0.025;
+      m.box(cx, cy, cz, w - b * 2, h, d - b * 2, c);
+      m.box(cx, cy, cz, w, h - b * 2, d - b * 2, c);
+      m.box(cx, cy, cz, w - b * 2, h - b * 2, d, c);
+    };
+    body.add(make((m) => bevel(m, 0, 2 * S + S, 0, 2 * S, 2 * S, S, o.shirt)));
+    const head = new THREE.Group();
+    head.position.y = 4 * S + 0.02;
+    head.add(make((m) => {
+      m.tube(0, S * 0.55, 0, S * 0.62, S * 0.62, S * 0.8, 'y', o.skin, 16, false);
+      m.ball(0, S * 0.95, 0, S * 1.24, S * 0.42, S * 1.24, o.skin, 16, 4);
+      m.ball(0, S * 0.15, 0, S * 1.24, S * 0.42, S * 1.24, o.skin, 16, 4);
+      m.tube(0, -0.02, 0, S * 0.3, S * 0.3, 0.06, 'y', o.skin, 10, false); // neck
+      // Face on the -Z side: two oval eyes and a smile.
+      const fz = -S * 0.62 - 0.004;
+      m.ball(-0.07, S * 0.68, fz, 0.045, 0.075, 0.012, 0x111111, 8, 4);
+      m.ball(0.07, S * 0.68, fz, 0.045, 0.075, 0.012, 0x111111, 8, 4);
+      for (let i = 0; i <= 8; i++) {
+        const a = Math.PI * (0.18 + (0.64 * i) / 8), x = Math.cos(a) * 0.1, y = S * 0.48 - Math.sin(a) * 0.06;
+        const zz = -Math.sqrt(Math.max(0, (S * 0.62) ** 2 - x * x)) - 0.004;
+        m.ball(x, y, zz, 0.022, 0.022, 0.012, 0x111111, 6, 3);
+      }
+      if (o.hat) { m.tube(0, S * 1.12, 0, S * 0.66, S * 0.66, S * 0.36, 'y', o.hat, 16); m.box(0, S * 0.98, -S * 0.62, S * 1.1, 0.03, S * 0.7, o.hat); }
+    }));
+    body.add(head);
+    // Limbs hang from a pivot at the shoulder or hip; `joint` exists so the shared poses work, but nothing bends there.
+    const limb = (x, y, colors) => {
+      const top = new THREE.Group(); top.position.set(x, y, 0);
+      top.add(make((m) => colors.forEach(([y0, h, c]) => bevel(m, 0, -y0 - h / 2, 0, S * 0.97, h, S * 0.97, c))));
+      const joint = new THREE.Group(); joint.position.y = -S;
+      top.add(joint);
+      body.add(top);
+      return { top, joint };
+    };
+    const legs = [S / 2, -S / 2].map((x) => limb(x, 2 * S, [[0, 2 * S - 0.12, o.pants], [2 * S - 0.12, 0.12, o.shoes]]));
+    const arms = [1.5 * S, -1.5 * S].map((x) => limb(x, 4 * S - 0.06, [[-0.06, 0.75 * S, o.shirt], [0.75 * S - 0.06, 1.25 * S, o.skin]]));
+    g.userData = { body, head, legs, arms, blocky: true };
+    return g;
+  }
+
+  // Pose a person. phase advances while walking; amount 0..1 is stride strength; mode: 'walk' or 'sit'.
+  // Convention: a positive rotation.x swings a hanging limb FORWARD (towards -Z, the way the person faces).
+  // Knees therefore bend with a negative angle (shin goes back), elbows with a positive one (forearm comes forward).
   function animatePerson(p, phase, amount, mode) {
     const u = p.userData;
+    if (mode === 'kneel') {
+      // Kneeling on the carpet, sitting back on the heels, hands on the knees.
+      u.legs.forEach((l) => { l.top.rotation.x = 1.25; l.joint.rotation.x = u.blocky ? 0 : -2.75; });
+      u.arms.forEach((a) => { a.top.rotation.x = 0.35; a.joint.rotation.x = u.blocky ? 0 : 0.55; });
+      u.body.position.y = u.blocky ? -0.8 : -0.6;
+      return;
+    }
     if (mode === 'sit') {
-      u.legs.forEach((l) => { l.top.rotation.x = -1.45; l.joint.rotation.x = 1.45; });
-      u.arms.forEach((a) => { a.top.rotation.x = -0.6; a.joint.rotation.x = -0.5; });
-      u.body.position.y = -0.42;
+      u.legs.forEach((l) => { l.top.rotation.x = 1.45; l.joint.rotation.x = u.blocky ? 0 : -1.45; });
+      u.arms.forEach((a) => { a.top.rotation.x = 0.6; a.joint.rotation.x = u.blocky ? 0 : 0.5; });
+      u.body.position.y = u.blocky ? -0.62 : -0.42;
       return;
     }
     u.body.position.y = Math.abs(Math.sin(phase)) * 0.035 * amount;
-    const s = Math.sin(phase) * 0.55 * amount;
+    const s = Math.sin(phase) * (u.blocky ? 0.8 : 0.55) * amount;
     u.legs[0].top.rotation.x = s; u.legs[1].top.rotation.x = -s;
-    u.legs[0].joint.rotation.x = Math.max(0, -Math.sin(phase + 0.6)) * 0.9 * amount;
-    u.legs[1].joint.rotation.x = Math.max(0, Math.sin(phase + 0.6)) * 0.9 * amount;
+    u.legs[0].joint.rotation.x = u.blocky ? 0 : -Math.max(0, -Math.sin(phase + 0.6)) * 0.9 * amount;
+    u.legs[1].joint.rotation.x = u.blocky ? 0 : -Math.max(0, Math.sin(phase + 0.6)) * 0.9 * amount;
     u.arms[0].top.rotation.x = -s * 0.8; u.arms[1].top.rotation.x = s * 0.8;
-    u.arms[0].joint.rotation.x = -0.25 - amount * 0.2; u.arms[1].joint.rotation.x = -0.25 - amount * 0.2;
+    u.arms[0].joint.rotation.x = u.blocky ? 0 : 0.25 + amount * 0.2; u.arms[1].joint.rotation.x = u.blocky ? 0 : 0.25 + amount * 0.2;
   }
+  // Arms held out in front, as when carrying a crate (positive = forward, see above).
+  function poseCarry(p) { p.userData.arms.forEach((a) => { a.top.rotation.x = 1.3; a.joint.rotation.x = p.userData.blocky ? 0 : 0.4; }); }
+  function poseReach(p, t) { p.userData.arms[0].top.rotation.x = 1.3 * t; }
 
   // Compact saloon in the style of a Lada Granta: sloped bonnet, raked windscreen, high boot.
   // Origin: centre at ground level; driver sits on the left. No maker's badges.
@@ -469,5 +534,5 @@
     return m;
   }
 
-  G.models = { Builder, make, chicken, cat, person, animatePerson, car, plane, cockpit, goldKey, carKey, beacon, egg, crate, pallet, bowl, arm, door, textSprite, signPlane };
+  G.models = { Builder, make, chicken, cat, person, blockyPerson, animatePerson, poseCarry, poseReach, car, plane, cockpit, goldKey, carKey, beacon, egg, crate, pallet, bowl, arm, door, textSprite, signPlane };
 })();

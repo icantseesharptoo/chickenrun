@@ -221,6 +221,19 @@ def main():
     work = min(straight, key=lambda b: math.dist(centroid(b['p']), town))
     shop['k'], work['k'] = 'shop', 'work'
     print(f"skew: shop {skew(shop):.0f} deg, depot {skew(work):.0f} deg")
+    # The mosque you can visit: the largest one, turned square to the grid at its real size and place.
+    mosques = [b for b in blds if b['k'] == 'mosque']
+    if mosques:
+        mq = max(mosques, key=lambda b: b['area'])
+        p = mq['p']
+        edges = sorted((math.dist(p[i], p[(i + 1) % len(p)]) for i in range(len(p))), reverse=True)
+        L, Wd = edges[0], mq['area'] / edges[0]
+        cx, cz = centroid(p)
+        if L < 12: L = 12
+        if Wd < 12: Wd = 12
+        mq['p'] = [(cx - L / 2, cz - Wd / 2), (cx + L / 2, cz - Wd / 2), (cx + L / 2, cz + Wd / 2), (cx - L / 2, cz + Wd / 2)]
+        mq['visit'] = 1
+        print(f'mosque to visit: {L:.1f} x {Wd:.1f} m at {cx:.0f},{cz:.0f}')
     for b in (shop, work):
         xs, zs = [p[0] for p in b['p']], [p[1] for p in b['p']]
         b['p'] = [(min(xs), min(zs)), (max(xs), min(zs)), (max(xs), max(zs)), (min(xs), max(zs))]
@@ -414,7 +427,7 @@ def main():
         landuse=dict(x0=lx0, z0=lz0, step=lstep, w=lw, h=lh, rle=rle),
         roadNames=list(road_names.keys()),
         roads=out_roads,
-        buildings=[dict(k=b['k'], n=b['n'], l=b['l'], p=flat(b['p'])) for b in blds],
+        buildings=[dict(k=b['k'], n=b['n'], l=b['l'], p=flat(b['p']), **({'v': 1} if b.get('visit') else {})) for b in blds],
         rivers=out_rivers,
         waters=out_waters,
         pois=pois,

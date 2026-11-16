@@ -29,9 +29,33 @@
 
   G.devShots = {
     bedroom() { stand(SI().home.spawn); settle(); },
-    kitchen() { const h = SI().home; G.game.setView('first'); stand(h.pos(5.5, 0, 15.5), h.cupboard); settle(); },
-    living() { const h = SI().home; G.game.setView('first'); stand(h.pos(5.4, 0, 20.4), h.pos(2.2, 0.6, 22.2)); settle(); },
-    hills() { const h = SI().home; G.game.setCamDist(5); stand(h.pos(19.5, 0, -6), h.pos(19.5, 60, -1200)); settle(); },
+    kitchen() { const h = SI().home; G.game.setView('first'); stand(h.pos(h.plan.HC(4) + 0.5, 0, h.plan.HR(8) + 0.5), h.cupboard); settle(); },
+    backdoor() { const h = SI().home; stand(h.pos(12, 0, 28), h.frontDoorMid); settle(); },
+    mosque() { const m = SI().mosque; stand(m.entrance.clone().add(new THREE.Vector3((m.entrance.x - m.inside.x) * 3, 0, (m.entrance.z - m.inside.z) * 3)), m.inside.clone().setY(m.y + 6)); settle(); },
+    mosquein() { const g = G.game, m = SI().mosque; g.S().day = 3; g.S().hour = 12.2; openDoor('mosque'); g.setView('first'); stand(m.spot.clone().setY(m.y), m.imam.clone().setY(m.y + 1.1)); settle(12.2); },
+    living() { const h = SI().home; G.game.setView('first'); stand(h.pos(h.plan.HC(5) - 0.6, 0, h.plan.HR(3) + 0.4), h.pos(h.plan.HC(1) + 0.5, 0.6, h.plan.HR(1) + 0.5)); settle(); },
+    poses() {
+      const g = G.game, M = G.models, base = SI().airHome.frame.pos(120, 0, 36);
+      g.teleport(base.x, W_TOP(), base.z + 30); settle();
+      g.avatar.visible = false;
+      const row = [
+        ['walk', () => M.blockyPerson(), 1.2], ['walk', () => M.blockyPerson(), 4.3], ['carry', () => M.blockyPerson()], ['sit', () => M.blockyPerson()],
+        ['walk', () => M.person({ shirt: 0xb83a4b }), 1.2], ['walk', () => M.person({ shirt: 0x4b6b3a }), 4.3], ['sit', () => M.person({ shirt: 0x6a4f7a })],
+      ];
+      row.forEach(([mode, fn, ph], i) => {
+        const p = fn(); p.position.set(base.x - 9 + i * 2.6, W_TOP() + (mode === 'sit' ? 0.62 : 0), base.z); p.rotation.y = -Math.PI / 2; // all face +X (to the right)
+        if (mode === 'carry') { M.animatePerson(p, 0, 0, 'walk'); M.poseCarry(p); } else M.animatePerson(p, ph || 0, 1, mode);
+        G.game.camera.parent.add(p);
+      });
+      const cam = G.game.camera; cam.position.set(base.x - 1.2, W_TOP() + 1.1, base.z + 7.5); cam.rotation.set(-0.02, 0, 0);
+    },
+    face() {
+      const g = G.game, h = SI().home, b = h.gate.clone().add(new THREE.Vector3(-12, 0, 0));
+      g.teleport(b.x, W_TOP(), b.z); g.setYawPitch(0, 0); settle();
+      g.avatar.position.set(b.x, W_TOP(), b.z); g.avatar.rotation.y = 0; g.avatar.visible = true;
+      G.models.animatePerson(g.avatar, 0, 0, 'walk');
+      const cam = g.camera; cam.position.set(b.x + 1.2, W_TOP() + 1.6, b.z - 3); cam.lookAt(b.x, W_TOP() + 1.2, b.z);
+    },    hills() { const h = SI().home; G.game.setCamDist(5); stand(h.pos(19.5, 0, -6), h.pos(19.5, 60, -1200)); settle(); },
     hillsN() { const g = G.game; g.teleport(0, W_TOP(), -2900); g.setYawPitch(0, 0.04); settle(); },
     corridor() { const h = SI().home; stand(h.pos(7.5, 0, 6), h.pos(7.5, 1.5, 20)); settle(); },
     yard() { const h = SI().home; stand(h.pos(19.5, 0, 21), h.pos(19.5, 1, 32)); settle(); },
@@ -85,7 +109,8 @@
     check('quest 1 is grain', S.questIdx === 0);
 
     // Walk: front door blocks, then opens.
-    const inside = H.pos(7.5, 0, 5.5), doorOut = H.pos(7.5, 0, 1.5), doorMid = H.pos(7.5, 1.6, 3.5);
+    const inside = H.frontDoorInside, doorOut = H.frontDoorOutside, doorMid = H.frontDoorMid;
+    check('the front door faces the back yard, away from the street', doorOut.distanceTo(H.gate) > inside.distanceTo(H.gate), `door ${doorOut.distanceTo(H.gate).toFixed(1)} m from the gate`);
     at(inside, doorMid);
     check('door prompt shows', /Open door/.test(curLabel() || ''), curLabel());
     g.keys.KeyW = true; sim(1.5); clearKeys();
@@ -131,7 +156,7 @@
     check('grain spent', S.items.grain === 1, S.items.grain);
 
     // Cats
-    at(H.pos(5.5, 0, 16.5), H.cupboard);
+    at(H.pos(H.plan.HC(4) + 0.5, 0, H.plan.HR(7) + 0.5), H.cupboard);
     check('cupboard prompt', /cat food/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.1);
     check('3 cat food', S.items.catfood === 3, S.items.catfood);
@@ -150,7 +175,7 @@
     check('all 3 cats fed', g.cats.every((c) => c.fed) && S.flags.catsDone, `via prompt ${catsOK}`);
 
     // Car key
-    at(H.pos(5.5, 0, 15.5), H.keyHook);
+    at(H.pos(H.plan.HC(4) + 0.5, 0, H.plan.HR(7) + 0.5), H.keyHook);
     check('car key prompt', /car key/.test(curLabel() || ''), curLabel());
     g.interactNow(); sim(0.1);
     check('has car key', S.carKey);
@@ -267,6 +292,108 @@
     g.interactNow(); sim(0.2);
     check('chest opened', S.flags.chestOpen);
 
+    // ---------- Body poses: limbs must bend the natural way relative to where the figure faces ----------
+    {
+      const M = G.models, sc = new THREE.Scene();
+      const mk = (fn) => { const p = fn(); p.position.set(0, 0, 0); p.rotation.y = -Math.PI / 2; sc.add(p); return p; }; // faces +X
+      const fwd = (p, v) => { p.updateMatrixWorld(true); return v.x; }; // forward is +X here
+      const at = (obj, y) => { obj.updateMatrixWorld(true); return obj.localToWorld(new THREE.Vector3(0, y, 0)); };
+      const blocky = mk(() => M.blockyPerson()), human = mk(() => M.person({}));
+      for (const [name, p, legLen, upper, lower] of [['blocky', blocky, 0.72, 0, 0], ['villager', human, 0, 0.44, 0.43]]) {
+        M.animatePerson(p, Math.PI / 2, 1, 'walk'); // left leg at the front of its stride
+        p.updateMatrixWorld(true);
+        const hip = at(p.userData.legs[0].top, 0);
+        const foot = legLen ? at(p.userData.legs[0].top, -legLen) : at(p.userData.legs[0].joint, -lower);
+        check(`${name}: the stepping leg swings forward`, foot.x > hip.x + 0.1, `foot ${(foot.x - hip.x).toFixed(2)} m ahead of hip`);
+        const shoulder = at(p.userData.arms[0].top, 0), hand = at(p.userData.arms[0].top, -0.6);
+        check(`${name}: the opposite arm swings back`, hand.x < shoulder.x - 0.05, (hand.x - shoulder.x).toFixed(2));
+        if (!legLen) {
+          for (let ph = 0; ph < 6.3; ph += 0.3) {
+            M.animatePerson(p, ph, 1, 'walk'); p.updateMatrixWorld(true);
+            for (const l of p.userData.legs) {
+              const knee = at(l.joint, 0), hipP = at(l.top, 0), ft = at(l.joint, -lower);
+              // Foot must never sit in front of the line from hip through knee (that would be a backwards knee).
+              const lineX = hipP.x + (knee.x - hipP.x) * ((hipP.y - ft.y) / Math.max(0.01, hipP.y - knee.y));
+              if (ft.x > lineX + 0.02) { check('villager: knees never bend backwards', false, `phase ${ph.toFixed(1)}`); ph = 99; break; }
+            }
+          }
+          check('villager: knees bend the natural way through the whole stride', true);
+          M.animatePerson(p, 0, 1, 'walk'); p.updateMatrixWorld(true);
+          const el = at(p.userData.arms[0].joint, 0), hd = at(p.userData.arms[0].joint, -0.27);
+          check('villager: elbows bend forwards', hd.x > el.x, (hd.x - el.x).toFixed(3));
+        }
+        M.animatePerson(p, 0, 0, 'sit'); p.updateMatrixWorld(true);
+        const knee = legLen ? at(p.userData.legs[0].top, -legLen) : at(p.userData.legs[0].joint, 0);
+        check(`${name}: sitting puts the thighs forward`, knee.x > at(p.userData.legs[0].top, 0).x + 0.3, (knee.x - at(p.userData.legs[0].top, 0).x).toFixed(2));
+        M.animatePerson(p, 0, 0, 'walk'); M.poseCarry(p); p.updateMatrixWorld(true);
+        const hand2 = at(p.userData.arms[0].top, -0.55);
+        check(`${name}: carrying holds the arms out in front`, hand2.x > at(p.userData.arms[0].top, 0).x + 0.35, (hand2.x - at(p.userData.arms[0].top, 0).x).toFixed(2));
+      }
+      check('the player is the blocky Roblox-style figure', g.avatar.userData.blocky === true);
+      void fwd;
+    }
+    // ---------- Car and fences: it must stop at a fence and always be able to back away ----------
+    {
+      const o = H.pos(0, 0, 0), vOf = () => (S.cx - o.x) * H.dirV[0] + (S.cz - o.z) * H.dirV[1];
+      for (const angle of [0.35, 1.0, 1.35]) {
+        const start = H.pos(3.5, 0, -5.5);
+        g.placeCar(start.x, start.z, H.carHeading + Math.PI + angle);
+        S.inCar = true; g.car.speed = 0;
+        clearKeys(); g.keys.KeyW = true; sim(3); clearKeys();
+        const deepest = vOf();
+        g.keys.Space = true; sim(1); clearKeys();
+        const before = [S.cx, S.cz];
+        g.keys.KeyS = true; sim(2); clearKeys();
+        const backed = Math.hypot(S.cx - before[0], S.cz - before[1]);
+        check(`car stops at the fence at a ${Math.round(angle * 57)} deg angle`, deepest < 0.6, `body centre ${deepest.toFixed(2)} m past the fence line (half-length 2.1)`);
+        check(`car backs away from the fence at ${Math.round(angle * 57)} deg`, backed > 2, backed.toFixed(1) + ' m');
+        g.keys.Space = true; sim(1); clearKeys();
+      }
+      S.inCar = false; g.car.speed = 0;
+      g.placeCar(H.car.x, H.car.z, H.carHeading);
+    }
+
+    // ---------- Mosque and the Friday prayer ----------
+    {
+      const MQ = SI().mosque;
+      check('a mosque you can enter exists', !!MQ && !!g.doors.find((d) => d.id === 'mosque'));
+      S.day = 2; S.hour = 10; sim(0.3);
+      check('day 2 is a Thursday', !g.isFriday() && g.WEEK[g.weekday(S.day)] === 'Thursday');
+      check('the clock shows the weekday', /^Thu/.test(document.querySelector('#clock').textContent), document.querySelector('#clock').textContent);
+      const dM = g.doors.find((d) => d.id === 'mosque');
+      g.teleport(MQ.entrance.x, W.TOP, MQ.entrance.z); g.lookAt(dM.center); g.tick(dt);
+      g.teleport(dM.x + 0.5 - MQ.door.dx * 1.6, W.TOP, dM.z + 0.5 - MQ.door.dz * 1.6); g.lookAt(dM.center); g.tick(dt);
+      check('mosque door prompt', /Open door/.test(curLabel() || ''), curLabel());
+      g.interactNow(); sim(0.4);
+      g.lookAt(MQ.inside.clone().setY(P.eye)); g.keys.KeyW = true; sim(0.9); clearKeys();
+      check('walks into the mosque', W.inB(MQ.b, Math.floor(P.x), Math.floor(P.z)), `${P.x.toFixed(1)},${P.z.toFixed(1)}`);
+      sim(0.2);
+      check('shoes come off at the entrance', [...document.querySelectorAll('.toast')].some((t) => /shoes/.test(t.textContent)));
+      g.teleport(MQ.spot.x - MQ.door.dx * 2, W.TOP, MQ.spot.z - MQ.door.dz * 2); g.lookAt(MQ.spot); g.tick(dt);
+      check('on other days the mosque says when to come', /in 1 day/.test(curLabel() || ''), curLabel());
+      S.day = 3; S.hour = 9; g.tick(dt);
+      check('day 3 is Friday', g.isFriday());
+      check('on Friday morning the Friday prayer is the current quest', /Friday/.test(document.querySelector('#quest-title').textContent), document.querySelector('#quest-title').textContent);
+      S.hour = 12; g.tick(dt);
+      {
+        const toward = (obj, target) => { const f = new THREE.Vector3(0, 0, -1).applyQuaternion(obj.getWorldQuaternion(new THREE.Quaternion())); const t = target.clone().sub(obj.getWorldPosition(new THREE.Vector3())).setY(0).normalize(); return f.dot(t); };
+        const dots = g.congregation.map((c) => { const p = c.getWorldPosition(new THREE.Vector3()); return toward(c, p.clone().add(new THREE.Vector3(MQ.door.dx, 0, MQ.door.dz))); });
+        check('worshippers face the mihrab wall', dots.every((v) => v > 0.99), dots.map((v) => v.toFixed(2)).join(' ') + ` door ${JSON.stringify(MQ.door)} faceIn ${MQ.faceIn.toFixed(2)}`);
+      }      check('worshippers gather before the prayer', g.congregation.length >= 4 && g.congregation.every((c) => c.visible), g.congregation.length + ' people');
+      g.lookAt(MQ.spot); g.tick(dt);
+      check('prayer spot offers to wait for the prayer', /Wait for the Friday prayer/.test(curLabel() || ''), curLabel());
+      const hunger0 = S.hunger = 40;
+      g.interactNow(); g.tick(dt);
+      check('joining the prayer moves time on and records it', S.prayedDay === 3 && S.hour >= 13.5 && S.hour < 14 && S.flags.prayedOnce, S.hour.toFixed(2));
+      check('neighbours share food afterwards', S.hunger > hunger0 + 25, S.hunger);
+      check('the main quest returns after the prayer', !/Friday/.test(document.querySelector('#quest-title').textContent), document.querySelector('#quest-title').textContent);
+      check('worshippers leave after the prayer', g.congregation.every((c) => !c.visible));
+      g.lookAt(MQ.spot); g.tick(dt);
+      check('cannot pray twice on one Friday', /prayed here today/.test(curLabel() || ''), curLabel());
+      S.day = 10; S.hour = 16; g.tick(dt);
+      check('after 15:00 the prayer is over', g.isFriday() && /over/.test(curLabel() || ''), curLabel());
+    }
+
     // ---------- Akmulla 76, fences, villagers, camera, landscape ----------
     check('home is the real house at Akmulla St 76', W.D.home.way === '777451118' && W.D.home.number === '76', JSON.stringify(W.D.home));
     check('home address shows on screen at home', (() => { g.teleport(H.spawn.x, H.spawn.y, H.spawn.z); g.tick(dt); g.tick(0.2); return /Akmulla St 76/.test(document.querySelector('#street').textContent); })(), document.querySelector('#street').textContent);
@@ -286,8 +413,9 @@
     check('home lot is fenced with a gap at the gate', V.solidAt(Math.floor(H.pos(3.5, 0, 0.5).x), W.TOP, Math.floor(H.pos(3.5, 0, 0.5).z)) && !V.solidAt(Math.floor(H.gate.x + (H.pos(19.5, 0, 0.5).x - H.gate.x)), W.TOP, Math.floor(H.pos(19.5, 0, 0.5).z)));
     g.teleport(H.gate.x - 4, W.TOP, H.gate.z);
     for (let i = 0; i < 20; i++) g.tick(dt);
-    check('villagers walk about', g.npcs.filter((n) => n.active).length >= 3, g.npcs.filter((n) => n.active).length + ' active');
-    const n0 = g.npcs.filter((n) => n.active).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    check('villagers walk about', g.npcs.filter((n) => n.active).length >= 3, g.npcs.filter((n) => n.active).length + ' active; ' + g.npcs.map((n) => n.active ? Math.round(Math.hypot(n.x - P.x, n.z - P.z)) + 'm/w' + n.wait.toFixed(1) : 'off').join(' ') + ' P ' + P.x.toFixed(0) + ',' + P.z.toFixed(0) + ' inCar ' + S.inCar + ' cut ' + g.isCut());
+    const n0 = g.npcs.filter((n) => n.active && Math.hypot(n.x - P.x, n.z - P.z) > 4).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    if (n0) n0.wait = 0;
     if (n0) {
       const before = [n0.x, n0.z];
       for (let i = 0; i < 30; i++) g.tick(dt);

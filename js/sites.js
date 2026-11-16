@@ -57,7 +57,8 @@
 
   // ---- The house, from the owner's plan ----
   // Plan grid: c = 0..12 across (left to right on the drawing), r = 0..20 from the back wall to the front (entrance) wall.
-  const HC = (c) => 1 + c, HR = (r) => 3 + (20 - r);
+  // Turned 180 degrees so the entrance (bottom edge of the drawing) faces the back yard, not the street.
+  const HC = (c) => 1 + (12 - c), HR = (r) => 3 + r;
   const hp = (c, y, r, id) => put(HC(c), y, HR(r), id);
   const hbox = (c0, c1, y0, y1, r0, r1, id) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) for (let y = y0; y <= y1; y++) hp(c, y, r, id); };
   // Floor, outer walls (log siding), ceiling
@@ -111,9 +112,11 @@
   hbox(9, 11, -1, -1, 17, 18, B.RUG);
   // Roof: ridge along the length of the house
   homeRoof(HC(-1), HC(13), HR(21), HR(-1), 4, 3.4, TI.roof_green, TI.wall_log, 'v');
-  // Porch and path to the wicket
-  box(6, 8, -1, -1, 1, 2, B.PLANKS);
-  box(WICKET, WICKET, -1, -1, 0, 0, B.DIRT_ROAD);
+  // Back porch, and a path from the street wicket round the side of the house to it
+  box(6, 8, -1, -1, 24, 25, B.PLANKS);
+  box(WICKET, 15, -1, -1, 0, 1, B.DIRT_ROAD);
+  box(14, 15, -1, -1, 1, 25, B.DIRT_ROAD);
+  box(9, 15, -1, -1, 24, 25, B.DIRT_ROAD);
 
   // ---- Yard ----
   box(GATE0, GATE1, -1, -1, 0, 16, B.GRAVEL); // driveway
@@ -122,7 +125,7 @@
   for (const u of [14, 15]) for (const v of [4, 6, 8, 10]) put(u, 0, v, v % 4 ? B.FLOWER_BLUE : B.FLOWER_YELLOW);
   for (let i = 0; i < 90; i++) {
     const u = 1 + W.hashI(i, 5, LW - 2), v = 1 + W.hashI(i, 9, LD - 2);
-    const busy = (u <= 14 && v <= 24) || (u >= GATE0 && u <= GATE1 && v <= 16) || (u <= 12 && v >= 29 && v <= 51) || (u >= 15 && v >= 25 && v <= 46);
+    const busy = (u <= 15 && v <= 26) || (u >= GATE0 && u <= GATE1 && v <= 16) || (u <= 12 && v >= 29 && v <= 51) || (u >= 15 && v >= 25 && v <= 46);
     if (!busy) put(u, 0, v, W.hash(i, 3) < 0.8 ? B.GRASS_PLANT : B.FLOWER_WHITE);
   }
   // Barn / shed: u 15..23, v 26..34, door facing the house
@@ -182,17 +185,18 @@
     chest: homePos(19.5, 0.6, 33.5),
     cupboard: homePos(HC(2) + 0.5, 1, HR(5) + 0.5),
     keyHook: homePos(HC(2) + 0.9, 1.02, HR(7) + 0.5),
-    bed: homePos(HC(3) + 0.5, 0.6, HR(10)),
+    bed: homePos(HC(3) + 0.5, 0.6, HR(10) + 1),
     fridge: homePos(HC(4) + 0.5, 1, HR(5) + 0.5),
     trough: homePos(18.5, 0.7, 37.5),
-    frontDoorOutside: homePos(HC(6) + 0.5, 0, 1.5),
+    frontDoorOutside: homePos(HC(6) + 0.5, 0, HR(20) + 2.5),
     frontDoorInside: homePos(HC(6) + 0.5, 0, HR(19) + 0.5),
+    frontDoorMid: homePos(HC(6) + 0.5, 1.6, HR(20) + 0.5),
     shedOutside: homePos(19.5, 0, 24.5),
     shedInside: homePos(18.5, 0, 29.5),
     gate: homePos(19.5, 0, -2),
     chickenArea: { u0: 15, u1: 24, v0: 36, v1: 54 },
-    catArea: { u0: 14, u1: 24, v0: 2, v1: 24 },
-    bowl: homePos(15.5, 0, 4.5),
+    catArea: { u0: 9, u1: 24, v0: 24, v1: 28 },
+    bowl: homePos(12.5, 0, 25.5),
     center: homePos(13, 0, 28),
   };
 
@@ -466,6 +470,54 @@
     };
   })();
 
+  // ---------- Mosque you can visit: prayer hall with carpet, mihrab and minbar ----------
+  const mosque = (() => {
+    const b = W.buildings.find((q) => q.visit && q.k === 'mosque');
+    if (!b) return null;
+    b.h = 7;
+    const A = analyse(b), d = A.door, lat = [d.dz, d.dx];
+    const fixtures = new Map();
+    A.wallOverride = new Map();
+    const at = (i, l) => [d.x + d.dx * i + lat[0] * l, d.z + d.dz * i + lat[1] * l];
+    const isInt = (i, l) => { const q = at(i, l); const c = A.cells.get(A.key(q[0], q[1])); return c && c.interior; };
+    let depth = 1;
+    while (isInt(depth + 1, 0)) depth++;
+    // Centre the mihrab on the far wall (the door is wherever the street is, often off-centre).
+    let lmin = 0, lmax = 0;
+    while (isInt(depth, lmin - 1)) lmin--;
+    while (isInt(depth, lmax + 1)) lmax++;
+    const lc = Math.round((lmin + lmax) / 2);
+    const far = at(depth + 1, lc);
+    A.wallOverride.set(A.key(far[0], far[1]), [[0, B.MIHRAB], [1, B.MIHRAB], [2, B.MIHRAB]]);
+    // Minbar: three steps beside the mihrab
+    const side = isInt(depth, lc + 2) ? lc + 2 : lc - 2, sg = Math.sign(side - lc);
+    fixtures.set(A.key(...at(depth, side)), [B.PLANKS, B.PLANKS, B.PLANKS]);
+    if (isInt(depth - 1, side)) fixtures.set(A.key(...at(depth - 1, side)), [B.PLANKS, B.PLANKS]);
+    if (isInt(depth - 2, side)) fixtures.set(A.key(...at(depth - 2, side)), [B.PLANKS]);
+    // Shoe racks just inside the door
+    for (const l of [2, -2]) if (isInt(1, l)) fixtures.set(A.key(...at(1, l)), [B.CUPBOARD]);
+    // Minaret: a solid tower in the corner by the door, drawn tall by the mesher
+    const cornerL = isInt(2, -3) ? -3 : 3;
+    const mc = at(2, cornerL);
+    fixtures.set(A.key(mc[0], mc[1]), Array(b.h - 1).fill(B.PLASTER));
+    b.tx = mc[0] + 0.5; b.tz = mc[1] + 0.5;
+    makeInterior(b, A, fixtures, B.PRAYER_RUG);
+    const P3 = (i, l, y) => { const q = at(i, l); return new THREE.Vector3(q[0] + 0.5, b.base + (y || 0), q[1] + 0.5); };
+    const faceIn = Math.atan2(-d.dx, -d.dz); // looking from the door towards the mihrab
+    // Two rows of worshippers facing the mihrab, with a gap in the front row's middle and room behind for you.
+    const rows = [];
+    for (const i of [depth - 2, depth - 4]) for (let l = lc - 4; l <= lc + 4; l += 2) if (i > 2 && isInt(i, l) && l !== side) rows.push(P3(i, l));
+    const spotI = Math.max(2, depth - 6);
+    return {
+      b, door: d, y: b.base,
+      spot: P3(spotI, lc, 0.5),
+      imam: P3(depth, lc), imamYaw: faceIn,
+      rows, faceIn, side: sg,
+      entrance: new THREE.Vector3(d.x + 0.5 - d.dx * 3, b.base, d.z + 0.5 - d.dz * 3),
+      inside: P3(2, 0),
+    };
+  })();
+
   W.buildHouseFences();
-  G.sites = { home, shop, work, doors, landmarks, airHome, airAbroad, hotel };
+  G.sites = { home, shop, work, doors, landmarks, airHome, airAbroad, hotel, mosque };
 })();

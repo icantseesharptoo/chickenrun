@@ -429,7 +429,25 @@
     }
     // Meshes that belong to this chunk.
     const ox = c.wx0, oy = c.minY, oz = c.wz0;
-    for (const b of c.blds) if (!b.interior) emitBuilding(b, ox, oy, oz);
+    for (const b of c.blds) {
+      if (!b.interior) emitBuilding(b, ox, oy, oz);
+      else if (b.k === 'mosque') {
+        // Dome over the prayer hall, and a slim minaret with a pointed cap.
+        const top = b.base + b.h, R = Math.min(b.x1 - b.x0, b.z1 - b.z0) * 0.32, cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
+        emitPrism(cx, cz, R * 0.9, R * 0.9, top, top + 1.2, 12, TI.plaster, ox, oy, oz);
+        let prev = R;
+        for (let k = 1; k <= 6; k++) {
+          const a = (k / 6) * Math.PI / 2, r = Math.cos(a) * R;
+          emitPrism(cx, cz, prev, Math.max(0.05, r), top + 1.2 + Math.sin(((k - 1) / 6) * Math.PI / 2) * R, top + 1.2 + Math.sin(a) * R, 12, TI.dome_green, ox, oy, oz);
+          prev = r;
+        }
+        emitPrism(cx, cz, 0.08, 0.02, top + 1.2 + R, top + 2.8 + R, 6, TI.dome_gold, ox, oy, oz);
+        emitPrism(b.tx, b.tz, 0.95, 0.8, top, top + 14, 8, TI.plaster, ox, oy, oz);
+        emitPrism(b.tx, b.tz, 1.25, 1.25, top + 10, top + 10.6, 8, TI.plaster, ox, oy, oz);
+        emitPrism(b.tx, b.tz, 0.85, 0.02, top + 14, top + 18, 8, TI.dome_green, ox, oy, oz);
+        emitPrism(b.tx, b.tz, 0.05, 0.02, top + 18, top + 19.2, 4, TI.dome_gold, ox, oy, oz);
+      }
+    }
     for (const r of c.roofs) emitRoof(r, ox, oy, oz);
     for (const t of c.trees) emitTree(t, ox, oy, oz);
     emitFences(c, ox, oy, oz);
